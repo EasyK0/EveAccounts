@@ -1,0 +1,44 @@
+# EveAccounts (EveKonta)
+
+A private Windows app for managing many EVE Online accounts. Everything stays on your own PC; nothing goes to Discord or the cloud.
+
+## What it does
+
+- **Accounts (Konta)**: login, password, e-mail, e-mail password, Omega date and notes per account. Search by name, login, e-mail, character or notes. Buttons copy the login or password; the password is cleared from the clipboard after 30 s. CSV import and export.
+- **Characters (Postacie)**: SP, skill queue end, current training, wallet, asset value, industry jobs, PI and current system for every character in one sortable table.
+- **Alerts (Uwagi)**: empty or paused skill queues, queues ending within 24 h, finished jobs, idle or expiring PI extractors, expiring Omega (from the date stored on the account) and characters that need to log in again.
+- **Wealth (Majątek)**: total ISK and assets across all characters, plus a "where is my Sabre" search that shows the item, character, account and station or structure.
+
+The app only reads data from the official API (ESI) and never touches the game client.
+
+## Security
+
+- Database: `%LOCALAPPDATA%\EveKonta\evekonta.sqlite3`.
+- Passwords and character tokens are encrypted with Windows DPAPI plus the app's **master password**. Reading them needs your Windows account and the master password.
+- **The master password cannot be recovered.** If you forget it, stored passwords are lost and characters must be logged in again.
+- A copy of the database will not work on another PC because DPAPI is tied to the Windows account. Back up passwords with a CSV export and keep it somewhere safe (KeePass, an encrypted USB drive).
+- A CSV with passwords is plain text. Delete it after importing.
+
+## Setup
+
+Requires Python 3.11+ from python.org. No extra packages.
+
+1. Run `start.bat` (or `start-z-konsola.bat` to see errors in a console).
+2. Set the master password.
+3. Create an EVE application once at https://developers.eveonline.com/applications:
+   - Connection Type: *Authentication & API Access*, with the scopes listed in the Settings tab (there is a copy button),
+   - Callback URL: `http://localhost:8765/callback`,
+   - paste the **Client ID** into the Settings tab and save.
+4. Import accounts from CSV (see `konta-przyklad.csv`) or add them by hand.
+5. Add characters: select an account, click **Add character to account…**, then open the login page and pick the character. One login adds one character. When switching accounts, use the incognito link button so EVE SSO doesn't reuse the previous account. Each character logs in once; after that the app refreshes access on its own.
+
+## Refreshing
+
+The refresh button fetches data for all characters, and the app refreshes automatically every 30 minutes while open. With 300+ characters the first fetch takes a few minutes. Parallel fetches are set in Settings (default 6; ESI has rate limits).
+
+## Tests
+
+```
+py -3 -m pip install pytest
+py -3 -m pytest
+```
