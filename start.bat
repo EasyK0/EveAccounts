@@ -1,5 +1,5 @@
 @echo off
-rem Uruchamia EveKonta bez okna konsoli.
+rem Starts EveKonta without a console window.
 cd /d "%~dp0"
 where pyw >nul 2>nul
 if %errorlevel%==0 (

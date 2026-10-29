@@ -11,6 +11,10 @@ A private Windows app for managing many EVE Online accounts. Everything stays on
 
 The app only reads data from the official API (ESI) and never touches the game client.
 
+## Language
+
+The app is in English by default. To switch to Polish, open **Settings**, pick *Polski* under **Language / Język** and click **Save settings**; the window switches right away and remembers the choice. CSV import accepts both English and Polish column names (`name`/`nazwa`, `password`/`haslo`, `notes`/`notatki`, ...), and exports use the column names of the chosen language.
+
 ## Security
 
 - Database: `%LOCALAPPDATA%\EveKonta\evekonta.sqlite3`.
@@ -29,7 +33,7 @@ Requires Python 3.11+ from python.org. No extra packages.
    - Connection Type: *Authentication & API Access*, with the scopes listed in the Settings tab (there is a copy button),
    - Callback URL: `http://localhost:8765/callback`,
    - paste the **Client ID** into the Settings tab and save.
-4. Import accounts from CSV (see `konta-przyklad.csv`) or add them by hand.
+4. Import accounts from CSV (see `konta-przyklad.csv`), paste a list with **Paste accounts…**, or add them by hand.
 5. Add characters: select an account, click **Add character to account…**, then open the login page and pick the character. One login adds one character. When switching accounts, use the incognito link button so EVE SSO doesn't reuse the previous account. Each character logs in once; after that the app refreshes access on its own.
 
 ## Refreshing
