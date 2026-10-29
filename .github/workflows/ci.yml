@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install pytest
+      - name: Test
+        run: python -m pytest -q
+
+  private-files:
+    # Account lists, exports and the database must never end up in the repo.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: No private files tracked
+        run: |
+          bad=$(git ls-files | grep -Ei '(^|/)konta-lista\.txt$|\.sqlite3?$|\.db$|\.csv$' | grep -v '^konta-przyklad\.csv$' || true)
+          if [ -n "$bad" ]; then echo "Private files are tracked:"; echo "$bad"; exit 1; fi
+      - name: .gitignore still covers them
+        run: |
+          for f in konta-lista.txt evekonta.sqlite3 export.csv; do
+            git check-ignore -q "$f" || { echo "$f is not ignored"; exit 1; }
+          done

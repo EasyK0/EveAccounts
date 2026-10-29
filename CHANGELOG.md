@@ -2,6 +2,10 @@
 
 All notable changes to EveKonta. Adding a new version at the top publishes a GitHub release for it.
 
+## [Unreleased]
+
+- CI: tests run on Windows with Python 3.11 and 3.13, and a check fails the build if an account list, export or database file is ever committed.
+
 ## [1.1.0] - 2026-10-28
 
 - The app is now in English by default, with Polish as a second language (Settings → Language / Język). The window switches language right away.

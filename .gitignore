@@ -4,3 +4,4 @@ __pycache__/
 *.csv
 !konta-przyklad.csv
 konta-lista.txt
+*.db
