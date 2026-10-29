@@ -62,3 +62,6 @@ def test_translations_keep_placeholders():
     for en, pl in i18n.PL.items():
         assert fields(en) == fields(pl), en
 
+
+def test_no_unused_translations():
+    assert sorted(set(i18n.PL) - tr_texts()) == []
