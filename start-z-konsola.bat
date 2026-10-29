@@ -1,5 +1,5 @@
 @echo off
-rem To samo co start.bat, ale z oknem konsoli (widac bledy).
+rem Same as start.bat, but with a console window (shows errors).
 cd /d "%~dp0"
 where py >nul 2>nul
 if %errorlevel%==0 (
