@@ -1,4 +1,4 @@
-"""Okno aplikacji EveKonta (Tkinter)."""
+"""EveKonta application window (Tkinter)."""
 
 from __future__ import annotations
 
@@ -13,8 +13,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
-from . import __version__, csvio, reports, sso
+from . import __version__, csvio, i18n, reports, sso
 from .crypto import Vault, WrongPassword, derive_key, new_salt, verifier_for
+from .i18n import tr
 from .storage import Db, default_data_dir
 from .sync import Syncer
 
@@ -22,11 +23,11 @@ CLIPBOARD_CLEAR_SECONDS = 30
 DEV_PORTAL = "https://developers.eveonline.com/applications"
 
 
-# --- pomocnicze widgety -----------------------------------------------------
+# --- helper widgets -----------------------------------------------------
 
 
 class Table(ttk.Frame):
-    """Treeview z paskiem przewijania i sortowaniem po kliknięciu nagłówka."""
+    """Treeview with scrollbars and sorting by clicking a header."""
 
     def __init__(self, master, columns: list[tuple[str, str, int]], height=20):
         super().__init__(master)
@@ -101,29 +102,31 @@ def labeled_entry(parent, row, label, show=None, width=40):
     return var, entry
 
 
-# --- hasło główne -----------------------------------------------------------
+# --- master password -----------------------------------------------------------
 
 
 def ask_master_password(root: tk.Tk, db: Db) -> Vault | None:
     salt_hex = db.get_setting("master_salt")
     if not salt_hex:
         messagebox.showinfo(
-            "EveKonta – pierwsze uruchomienie",
-            "Ustaw hasło główne. Szyfruje ono hasła do kont i tokeny postaci.\n\n"
-            "Zapamiętaj je: bez niego nie da się odczytać zapisanych haseł.",
+            tr("EveKonta – first start"),
+            tr("Set a master password. It encrypts account passwords and character tokens.\n\n"
+               "Remember it: without it the saved passwords cannot be read."),
             parent=root,
         )
         while True:
-            first = simpledialog.askstring("Hasło główne", "Nowe hasło główne (min. 8 znaków):", show="*",
-                                           parent=root)
+            first = simpledialog.askstring(tr("Master password"), tr("New master password (min. 8 characters):"),
+                                           show="*", parent=root)
             if first is None:
                 return None
             if len(first) < 8:
-                messagebox.showwarning("Hasło główne", "Hasło musi mieć co najmniej 8 znaków.", parent=root)
+                messagebox.showwarning(tr("Master password"), tr("The password needs at least 8 characters."),
+                                       parent=root)
                 continue
-            second = simpledialog.askstring("Hasło główne", "Powtórz hasło główne:", show="*", parent=root)
+            second = simpledialog.askstring(tr("Master password"), tr("Repeat the master password:"), show="*",
+                                            parent=root)
             if second != first:
-                messagebox.showwarning("Hasło główne", "Hasła się różnią.", parent=root)
+                messagebox.showwarning(tr("Master password"), tr("The passwords do not match."), parent=root)
                 continue
             salt = new_salt()
             key = derive_key(first, salt)
@@ -133,17 +136,17 @@ def ask_master_password(root: tk.Tk, db: Db) -> Vault | None:
     salt = bytes.fromhex(salt_hex)
     verifier = db.get_setting("master_verifier")
     for _ in range(5):
-        pw = simpledialog.askstring("EveKonta", "Hasło główne:", show="*", parent=root)
+        pw = simpledialog.askstring("EveKonta", tr("Master password:"), show="*", parent=root)
         if pw is None:
             return None
         try:
             return Vault.unlock(pw, salt, verifier)
         except WrongPassword:
-            messagebox.showerror("EveKonta", "Złe hasło główne.", parent=root)
+            messagebox.showerror("EveKonta", tr("Wrong master password."), parent=root)
     return None
 
 
-# --- okno edycji konta ------------------------------------------------------
+# --- account edit dialog ------------------------------------------------------
 
 
 class AccountDialog(tk.Toplevel):
@@ -151,28 +154,28 @@ class AccountDialog(tk.Toplevel):
         super().__init__(app)
         self.app = app
         self.account_id = account_id
-        self.title("Nowe konto" if account_id is None else "Edycja konta")
+        self.title(tr("New account") if account_id is None else tr("Edit account"))
         self.transient(app)
         self.resizable(True, False)
         frm = ttk.Frame(self, padding=10)
         frm.pack(fill="both", expand=True)
         frm.columnconfigure(1, weight=1)
-        self.name, _ = labeled_entry(frm, 0, "Nazwa (dowolna)")
-        self.login, _ = labeled_entry(frm, 1, "Login EVE")
-        self.password, self._pw_entry = labeled_entry(frm, 2, "Hasło EVE", show="•")
-        self.email, _ = labeled_entry(frm, 3, "E-mail")
-        self.email_password, self._epw_entry = labeled_entry(frm, 4, "Hasło do maila", show="•")
-        self.omega, _ = labeled_entry(frm, 5, "Omega do (RRRR-MM-DD)")
-        ttk.Label(frm, text="Notatki").grid(row=6, column=0, sticky="nw", padx=6, pady=3)
+        self.name, _ = labeled_entry(frm, 0, tr("Name (anything)"))
+        self.login, _ = labeled_entry(frm, 1, tr("EVE login"))
+        self.password, self._pw_entry = labeled_entry(frm, 2, tr("EVE password"), show="•")
+        self.email, _ = labeled_entry(frm, 3, tr("E-mail"))
+        self.email_password, self._epw_entry = labeled_entry(frm, 4, tr("E-mail password"), show="•")
+        self.omega, _ = labeled_entry(frm, 5, tr("Omega until (YYYY-MM-DD)"))
+        ttk.Label(frm, text=tr("Notes")).grid(row=6, column=0, sticky="nw", padx=6, pady=3)
         self.notes = tk.Text(frm, height=4, width=40)
         self.notes.grid(row=6, column=1, sticky="ew", padx=6, pady=3)
         self.show_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(frm, text="Pokaż hasła", variable=self.show_var, command=self._toggle).grid(
+        ttk.Checkbutton(frm, text=tr("Show passwords"), variable=self.show_var, command=self._toggle).grid(
             row=7, column=1, sticky="w", padx=6)
         btns = ttk.Frame(frm)
         btns.grid(row=8, column=0, columnspan=2, sticky="e", pady=(10, 0))
-        ttk.Button(btns, text="Zapisz", command=self.save).pack(side="right", padx=4)
-        ttk.Button(btns, text="Anuluj", command=self.destroy).pack(side="right")
+        ttk.Button(btns, text=tr("Save"), command=self.save).pack(side="right", padx=4)
+        ttk.Button(btns, text=tr("Cancel"), command=self.destroy).pack(side="right")
 
         if account_id is not None:
             acc = app.db.get_account(account_id)
@@ -194,11 +197,11 @@ class AccountDialog(tk.Toplevel):
 
     def save(self):
         if not (self.login.get().strip() or self.email.get().strip() or self.name.get().strip()):
-            messagebox.showwarning("Konto", "Wpisz przynajmniej login, e-mail albo nazwę.", parent=self)
+            messagebox.showwarning(tr("Account"), tr("Enter at least a login, e-mail or name."), parent=self)
             return
         omega = self.omega.get().strip()
         if omega and reports.parse_omega(omega) is None:
-            messagebox.showwarning("Konto", "Data Omegi w formacie RRRR-MM-DD (np. 2026-11-30).", parent=self)
+            messagebox.showwarning(tr("Account"), tr("Omega date as YYYY-MM-DD (e.g. 2026-11-30)."), parent=self)
             return
         v = self.app.vault
         fields = dict(
@@ -214,43 +217,44 @@ class AccountDialog(tk.Toplevel):
         self.destroy()
 
 
-# --- wklejanie listy kont -------------------------------------------------
+# --- pasting an account list -------------------------------------------------
 
 
 class PasteAccountsDialog(tk.Toplevel):
     def __init__(self, app: "App"):
         super().__init__(app)
         self.app = app
-        self.title("Wklej konta")
+        self.title(tr("Paste accounts"))
         self.transient(app)
         self.geometry("820x600")
         frm = ttk.Frame(self, padding=10)
         frm.pack(fill="both", expand=True)
-        ttk.Label(frm, justify="left", text=(
-            "Wklej listę kont, jedno konto w linii. Pola rozdziel dowolnie: ; : | , tabulatorem albo spacją.\n"
-            "Przykłady:   login;hasło;mail@wp.pl     login:hasło     mail@wp.pl hasło     login;mail@wp.pl\n"
-            "Pole z @ to e-mail, pierwsze inne to login, potem hasło, reszta trafia do notatek.")).pack(anchor="w")
+        ttk.Label(frm, justify="left", text=tr(
+            "Paste a list of accounts, one per line. Separate fields any way: ; : | , tab or space.\n"
+            "Examples:   login;password;mail@wp.pl     login:password     mail@wp.pl password     login;mail@wp.pl\n"
+            "The field with @ is the e-mail, the first other one is the login, then the password, "
+            "the rest goes to notes.")).pack(anchor="w")
         self.no_pw = tk.BooleanVar(value=False)
-        ttk.Checkbutton(frm, text="Lista bez haseł (login + e-mail, hasła dopiszę później)",
+        ttk.Checkbutton(frm, text=tr("List without passwords (login + e-mail, I will add passwords later)"),
                         variable=self.no_pw, command=self.preview).pack(anchor="w", pady=4)
         pw_row = ttk.Frame(frm)
         pw_row.pack(anchor="w", pady=2)
-        ttk.Label(pw_row, text="Wspólne hasło dla kont bez hasła (opcjonalnie):").pack(side="left")
+        ttk.Label(pw_row, text=tr("Shared password for accounts without one (optional):")).pack(side="left")
         self.common_pw = tk.StringVar()
         ttk.Entry(pw_row, textvariable=self.common_pw, show="•", width=30).pack(side="left", padx=4)
         self.common_pw.trace_add("write", lambda *_: self.preview())
         self.text = tk.Text(frm, height=10, wrap="none")
         self.text.pack(fill="both", expand=True)
         self.text.bind("<<Modified>>", self._modified)
-        self.summary = tk.StringVar(value="Podgląd pojawi się po wklejeniu.")
+        self.summary = tk.StringVar(value=tr("The preview appears after pasting."))
         ttk.Label(frm, textvariable=self.summary).pack(anchor="w", pady=4)
-        self.table = Table(frm, [("login", "Login", 200), ("email", "E-mail", 220), ("password", "Hasło", 100),
-                                 ("notes", "Notatki", 220)], height=8)
+        self.table = Table(frm, [("login", tr("Login"), 200), ("email", tr("E-mail"), 220),
+                                 ("password", tr("Password"), 100), ("notes", tr("Notes"), 220)], height=8)
         self.table.pack(fill="both", expand=True)
         btns = ttk.Frame(frm)
         btns.pack(fill="x", pady=(8, 0))
-        ttk.Button(btns, text="Dodaj konta", command=self.add).pack(side="right")
-        ttk.Button(btns, text="Anuluj", command=self.destroy).pack(side="right", padx=4)
+        ttk.Button(btns, text=tr("Add accounts"), command=self.add).pack(side="right")
+        ttk.Button(btns, text=tr("Cancel"), command=self.destroy).pack(side="right", padx=4)
         self.grab_set()
 
     def _modified(self, _event=None):
@@ -269,23 +273,25 @@ class PasteAccountsDialog(tk.Toplevel):
 
     def preview(self):
         rows = self.parsed()
-        shown = [{**r, "password": "•" * min(len(r["password"]), 8) if r["password"] else "(brak)"} for r in rows]
+        shown = [{**r, "password": "•" * min(len(r["password"]), 8) if r["password"] else tr("(none)")} for r in rows]
         self.table.set_rows(shown)
         missing_pw = sum(1 for r in rows if not r["password"])
-        self.summary.set(f"Rozpoznano {len(rows)} kont" + (f", bez hasła: {missing_pw}" if missing_pw else ""))
+        self.summary.set(tr("Recognized {n} accounts", n=len(rows))
+                         + (tr(", without password: {n}", n=missing_pw) if missing_pw else ""))
 
     def add(self):
         rows = self.parsed()
         if not rows:
-            messagebox.showinfo("Wklej konta", "Nic nie rozpoznano.", parent=self)
+            messagebox.showinfo(tr("Paste accounts"), tr("Nothing recognized."), parent=self)
             return
         added, skipped = csvio.add_parsed(self.app.db, self.app.vault, rows)
         self.app.refresh_views()
-        messagebox.showinfo("Wklej konta", f"Dodano: {added}\nPominięto (login już był): {skipped}", parent=self)
+        messagebox.showinfo(tr("Paste accounts"), tr("Added: {added}\nSkipped (login already there): {skipped}",
+                                                     added=added, skipped=skipped), parent=self)
         self.destroy()
 
 
-# --- dodawanie postaci przez SSO -------------------------------------------
+# --- adding characters through SSO -------------------------------------------
 
 
 class AddCharacterDialog(tk.Toplevel):
@@ -294,41 +300,41 @@ class AddCharacterDialog(tk.Toplevel):
         self.app = app
         self.account_id = account_id
         self.server: sso.CallbackServer | None = None
-        self.title("Dodaj postać (EVE SSO)")
+        self.title(tr("Add character (EVE SSO)"))
         self.transient(app)
         frm = ttk.Frame(self, padding=12)
         frm.pack(fill="both", expand=True)
         acc = app.db.get_account(account_id) if account_id else None
-        label = (acc["name"] or acc["login"] or acc["email"]) if acc else "(bez przypisanego konta)"
-        ttk.Label(frm, text=f"Konto: {label}", font=("Segoe UI", 11, "bold")).pack(anchor="w")
-        ttk.Label(frm, justify="left", wraplength=460, text=(
-            "1. Kliknij „Otwórz logowanie” (albo skopiuj link do okna prywatnego/incognito, "
-            "gdy przeglądarka jest zalogowana na inne konto).\n"
-            "2. Zaloguj się na to konto i wybierz postać.\n"
-            "3. Po powrocie możesz od razu dodać kolejną postać z tego konta.")).pack(anchor="w", pady=6)
+        label = (acc["name"] or acc["login"] or acc["email"]) if acc else tr("(no assigned account)")
+        ttk.Label(frm, text=tr("Account: {label}", label=label), font=("Segoe UI", 11, "bold")).pack(anchor="w")
+        ttk.Label(frm, justify="left", wraplength=460, text=tr(
+            "1. Click \"Open login\" (or copy the link into a private/incognito window "
+            "when the browser is logged in to another account).\n"
+            "2. Log in to this account and pick the character.\n"
+            "3. Back here you can add the next character of this account right away.")).pack(anchor="w", pady=6)
         row = ttk.Frame(frm)
         row.pack(anchor="w", pady=4)
         if acc:
-            ttk.Button(row, text="Kopiuj login", command=lambda: app.copy_secret(acc["login"], False)).pack(
+            ttk.Button(row, text=tr("Copy login"), command=lambda: app.copy_secret(acc["login"], False)).pack(
                 side="left", padx=2)
-            ttk.Button(row, text="Kopiuj hasło",
+            ttk.Button(row, text=tr("Copy password"),
                        command=lambda: app.copy_secret(app.vault.decrypt(acc["password_enc"]), True)).pack(
                 side="left", padx=2)
         row2 = ttk.Frame(frm)
         row2.pack(anchor="w", pady=4)
-        self.open_btn = ttk.Button(row2, text="Otwórz logowanie", command=lambda: self.start(open_browser=True))
+        self.open_btn = ttk.Button(row2, text=tr("Open login"), command=lambda: self.start(open_browser=True))
         self.open_btn.pack(side="left", padx=2)
-        self.link_btn = ttk.Button(row2, text="Kopiuj link (incognito)", command=lambda: self.start(False))
+        self.link_btn = ttk.Button(row2, text=tr("Copy link (incognito)"), command=lambda: self.start(False))
         self.link_btn.pack(side="left", padx=2)
         self.status = tk.StringVar(value="")
         ttk.Label(frm, textvariable=self.status, wraplength=460, foreground="#1a5fb4").pack(anchor="w", pady=6)
-        ttk.Button(frm, text="Zamknij", command=self.close).pack(anchor="e")
+        ttk.Button(frm, text=tr("Close"), command=self.close).pack(anchor="e")
         self.protocol("WM_DELETE_WINDOW", self.close)
 
     def start(self, open_browser: bool):
         cfg = self.app.sso_config()
         if not cfg["client_id"]:
-            messagebox.showwarning("EveKonta", "Najpierw wpisz Client ID w zakładce Ustawienia.", parent=self)
+            messagebox.showwarning("EveKonta", tr("First enter the Client ID on the Settings tab."), parent=self)
             return
         if self.server:
             self.server.close()
@@ -337,16 +343,17 @@ class AddCharacterDialog(tk.Toplevel):
         try:
             self.server = sso.CallbackServer(cfg["port"], state)
         except OSError:
-            messagebox.showerror("EveKonta", f"Port {cfg['port']} jest zajęty. Zmień go w Ustawieniach "
-                                             "(i w aplikacji na developers.eveonline.com).", parent=self)
+            messagebox.showerror("EveKonta", tr("Port {port} is in use. Change it in Settings "
+                                                "(and in the app on developers.eveonline.com).", port=cfg["port"]),
+                                 parent=self)
             return
         url = sso.build_auth_url(cfg["client_id"], cfg["port"], state, challenge, self.app.enabled_scopes())
         if open_browser:
             webbrowser.open(url)
-            self.status.set("Czekam na zalogowanie w przeglądarce…")
+            self.status.set(tr("Waiting for the login in the browser…"))
         else:
             self.app.copy_secret(url, False)
-            self.status.set("Link skopiowany. Wklej go w okno prywatne przeglądarki i zaloguj się…")
+            self.status.set(tr("Link copied. Paste it into a private browser window and log in…"))
         server = self.server
 
         def work():
@@ -354,22 +361,22 @@ class AddCharacterDialog(tk.Toplevel):
                 code = server.wait(300)
                 tokens = sso.exchange_code(code, verifier, cfg["client_id"], cfg["client_secret"] or None)
                 self.app.syncer.add_token(tokens, self.account_id)
-                self.app.ui(lambda: self.status.set(
-                    f"Dodano: {tokens.character_name}. Pobieram dane… Możesz dodać kolejną postać."))
+                self.app.ui(lambda: self.status.set(tr(
+                    "Added: {name}. Fetching data… You can add another character.", name=tokens.character_name)))
                 self.app.ui(self.app.refresh_views)
                 self.app.syncer.sync_character(tokens.character_id)
                 self.app.syncer.resolve_names()
                 self.app.syncer.compute_values()
-                self.app.ui(lambda: self.status.set(
-                    f"Dodano i pobrano: {tokens.character_name}. Możesz dodać kolejną postać."))
+                self.app.ui(lambda: self.status.set(tr(
+                    "Added and fetched: {name}. You can add another character.", name=tokens.character_name)))
                 self.app.ui(self.app.refresh_views)
             except sso.SsoError as exc:
                 msg = str(exc)
                 if server is self.server:
-                    self.app.ui(lambda: self.status.set(f"Nie udało się: {msg}"))
+                    self.app.ui(lambda: self.status.set(tr("Failed: {msg}", msg=msg)))
             except Exception as exc:  # noqa: BLE001
                 msg = f"{type(exc).__name__}: {exc}"
-                self.app.ui(lambda: self.status.set(f"Błąd: {msg}"))
+                self.app.ui(lambda: self.status.set(tr("Error: {msg}", msg=msg)))
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -379,7 +386,7 @@ class AddCharacterDialog(tk.Toplevel):
         self.destroy()
 
 
-# --- główne okno ------------------------------------------------------------
+# --- main window ------------------------------------------------------------
 
 
 class App(tk.Tk):
@@ -391,6 +398,7 @@ class App(tk.Tk):
         self.minsize(900, 500)
         self.data_dir = data_dir or default_data_dir()
         self.db = Db(self.data_dir / "evekonta.sqlite3")
+        i18n.set_language(self.db.get_setting("language", i18n.DEFAULT_LANGUAGE))
         self._ui_queue: queue.Queue = queue.Queue()
         self._sync_thread: threading.Thread | None = None
         self._cancel = threading.Event()
@@ -410,10 +418,10 @@ class App(tk.Tk):
         self.after(100, self._drain_ui_queue)
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
-    # --- infrastruktura ------------------------------------------------------
+    # --- infrastructure ------------------------------------------------------
 
     def ui(self, fn):
-        """Wywołanie fn w wątku okna (z dowolnego wątku)."""
+        """Runs fn on the window thread (callable from any thread)."""
         self._ui_queue.put(fn)
 
     def _drain_ui_queue(self):
@@ -446,7 +454,7 @@ class App(tk.Tk):
 
     def copy_secret(self, text: str, sensitive: bool):
         if not text:
-            self.set_status("Puste pole – nic nie skopiowano.")
+            self.set_status(tr("Empty field – nothing copied."))
             return
         self.clipboard_clear()
         self.clipboard_append(text)
@@ -462,19 +470,19 @@ class App(tk.Tk):
                     if self.clipboard_get() == text:
                         self.clipboard_clear()
                         self.clipboard_append("")
-                        self.set_status("Schowek wyczyszczony.")
+                        self.set_status(tr("Clipboard cleared."))
                 except tk.TclError:
                     pass
 
             self.after(CLIPBOARD_CLEAR_SECONDS * 1000, clear)
-            self.set_status(f"Skopiowano. Schowek wyczyszczę za {CLIPBOARD_CLEAR_SECONDS} s.")
+            self.set_status(tr("Copied. The clipboard will be cleared in {s} s.", s=CLIPBOARD_CLEAR_SECONDS))
         else:
-            self.set_status("Skopiowano.")
+            self.set_status(tr("Copied."))
 
     def set_status(self, text: str):
         self.status_var.set(text)
 
-    # --- budowa okna ---------------------------------------------------------
+    # --- building the window ---------------------------------------------------------
 
     def _build(self):
         style = ttk.Style(self)
@@ -484,9 +492,9 @@ class App(tk.Tk):
 
         top = ttk.Frame(self, padding=(8, 6))
         top.pack(fill="x")
-        self.refresh_btn = ttk.Button(top, text="⟳ Odśwież wszystkie postacie", command=self.start_sync)
+        self.refresh_btn = ttk.Button(top, text=tr("⟳ Refresh all characters"), command=self.start_sync)
         self.refresh_btn.pack(side="left")
-        self.cancel_btn = ttk.Button(top, text="Przerwij", command=self._cancel.set, state="disabled")
+        self.cancel_btn = ttk.Button(top, text=tr("Stop"), command=self._cancel.set, state="disabled")
         self.cancel_btn.pack(side="left", padx=4)
         self.progress = ttk.Progressbar(top, length=260, mode="determinate")
         self.progress.pack(side="left", padx=8)
@@ -501,100 +509,115 @@ class App(tk.Tk):
         self._build_accounts_tab()
         self._build_settings_tab()
 
-        self.status_var = tk.StringVar(value=f"Baza: {self.db.path}")
+        self.status_var = tk.StringVar(value=tr("Database: {path}", path=self.db.path))
         ttk.Label(self, textvariable=self.status_var, relief="sunken", anchor="w", padding=(6, 2)).pack(
             fill="x", side="bottom")
+        if self._sync_thread and self._sync_thread.is_alive():
+            self.refresh_btn.configure(state="disabled")
+            self.cancel_btn.configure(state="normal")
+
+    def rebuild(self):
+        """Builds the window again, e.g. after the language changed."""
+        tab = self.nb.index("current") if hasattr(self, "nb") else 0
+        for child in self.winfo_children():
+            child.destroy()
+        self._build()
+        self.refresh_views()
+        self.nb.select(tab)
 
     def _build_alerts_tab(self):
         tab = ttk.Frame(self.nb, padding=6)
-        self.nb.add(tab, text="Uwagi")
+        self.nb.add(tab, text=tr("Alerts"))
         self.alerts_summary = tk.StringVar()
         ttk.Label(tab, textvariable=self.alerts_summary, font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=4)
-        self.alerts_table = Table(tab, [("severity", "Ważność", 80), ("account", "Konto", 160),
-                                        ("character", "Postać", 180), ("what", "Co", 420), ("when", "Kiedy", 140)])
+        self.alerts_table = Table(tab, [("severity", tr("Severity"), 80), ("account", tr("Account"), 160),
+                                        ("character", tr("Character"), 180), ("what", tr("What"), 420),
+                                        ("when", tr("When"), 140)])
         self.alerts_table.pack(fill="both", expand=True)
-        self.alerts_table.tree.tag_configure("PILNE", background="#f8d7da")
-        self.alerts_table.tree.tag_configure("WKRÓTCE", background="#fff3cd")
+        self.alerts_table.tree.tag_configure("sev0", background="#f8d7da")
+        self.alerts_table.tree.tag_configure("sev1", background="#fff3cd")
 
     def _build_chars_tab(self):
         tab = ttk.Frame(self.nb, padding=6)
-        self.nb.add(tab, text="Postacie")
+        self.nb.add(tab, text=tr("Characters"))
         bar = ttk.Frame(tab)
         bar.pack(fill="x", pady=4)
-        ttk.Button(bar, text="Dodaj postać…", command=lambda: self.add_character(None)).pack(side="left")
-        ttk.Button(bar, text="Przypisz do konta…", command=self.assign_character).pack(side="left", padx=4)
-        ttk.Button(bar, text="Odśwież zaznaczone", command=self.sync_selected).pack(side="left")
-        ttk.Button(bar, text="Zaloguj ponownie", command=self.relogin_selected).pack(side="left", padx=4)
-        ttk.Button(bar, text="Usuń postać", command=self.delete_character).pack(side="left")
+        ttk.Button(bar, text=tr("Add character…"), command=lambda: self.add_character(None)).pack(side="left")
+        ttk.Button(bar, text=tr("Assign to account…"), command=self.assign_character).pack(side="left", padx=4)
+        ttk.Button(bar, text=tr("Refresh selected"), command=self.sync_selected).pack(side="left")
+        ttk.Button(bar, text=tr("Log in again"), command=self.relogin_selected).pack(side="left", padx=4)
+        ttk.Button(bar, text=tr("Remove character"), command=self.delete_character).pack(side="left")
         self.char_filter = tk.StringVar()
         self.char_filter.trace_add("write", lambda *_: self.refresh_chars())
         ttk.Entry(bar, textvariable=self.char_filter, width=30).pack(side="right")
-        ttk.Label(bar, text="Szukaj:").pack(side="right", padx=4)
+        ttk.Label(bar, text=tr("Search:")).pack(side="right", padx=4)
         self.chars_table = Table(tab, [
-            ("account", "Konto", 130), ("character", "Postać", 160), ("sp", "SP", 70),
-            ("queue", "Kolejka kończy się", 120), ("training", "Trenuje", 190), ("wallet", "Portfel", 85),
-            ("assets", "Assety", 85), ("jobs", "Joby gotowe/wszystkie", 80), ("pi", "PI (najbliższy)", 120),
-            ("system", "System", 100), ("status", "Status", 160)])
+            ("account", tr("Account"), 130), ("character", tr("Character"), 160), ("sp", "SP", 70),
+            ("queue", tr("Queue ends"), 120), ("training", tr("Training"), 190), ("wallet", tr("Wallet"), 85),
+            ("assets", tr("Assets"), 85), ("jobs", tr("Jobs ready/all"), 80), ("pi", tr("PI (next)"), 120),
+            ("system", tr("System"), 100), ("status", tr("Status"), 160)])
         self.chars_table.pack(fill="both", expand=True)
         self.chars_table.tree.tag_configure("bad", background="#f8d7da")
 
     def _build_wealth_tab(self):
         tab = ttk.Frame(self.nb, padding=6)
-        self.nb.add(tab, text="Majątek")
+        self.nb.add(tab, text=tr("Wealth"))
         self.totals_var = tk.StringVar()
         ttk.Label(tab, textvariable=self.totals_var, font=("Segoe UI", 11, "bold"), justify="left").pack(
             anchor="w", pady=6)
         bar = ttk.Frame(tab)
         bar.pack(fill="x", pady=4)
-        ttk.Label(bar, text="Gdzie jest… (nazwa przedmiotu/statku):").pack(side="left")
+        ttk.Label(bar, text=tr("Where is… (item/ship name):")).pack(side="left")
         self.item_query = tk.StringVar()
         entry = ttk.Entry(bar, textvariable=self.item_query, width=40)
         entry.pack(side="left", padx=4)
         entry.bind("<Return>", lambda e: self.search_items())
-        ttk.Button(bar, text="Szukaj", command=self.search_items).pack(side="left")
+        ttk.Button(bar, text=tr("Search"), command=self.search_items).pack(side="left")
         self.items_summary = tk.StringVar()
         ttk.Label(bar, textvariable=self.items_summary).pack(side="left", padx=10)
-        self.items_table = Table(tab, [("item", "Przedmiot", 240), ("qty", "Ilość", 70), ("value", "Wartość", 90),
-                                       ("character", "Postać", 160), ("account", "Konto", 130),
-                                       ("location", "Lokacja", 330)])
+        self.items_table = Table(tab, [("item", tr("Item"), 240), ("qty", tr("Qty"), 70), ("value", tr("Value"), 90),
+                                       ("character", tr("Character"), 160), ("account", tr("Account"), 130),
+                                       ("location", tr("Location"), 330)])
         self.items_table.pack(fill="both", expand=True)
-        ttk.Label(tab, foreground="#666", text=(
-            "Wartość wg średnich cen z ESI (/markets/prices). Kopie blueprintów liczone jako 0.")).pack(anchor="w")
+        ttk.Label(tab, foreground="#666", text=tr(
+            "Value from ESI average prices (/markets/prices). Blueprint copies count as 0.")).pack(anchor="w")
 
     def _build_accounts_tab(self):
         tab = ttk.Frame(self.nb, padding=6)
-        self.nb.add(tab, text="Konta")
+        self.nb.add(tab, text=tr("Accounts"))
         bar = ttk.Frame(tab)
         bar.pack(fill="x", pady=4)
-        ttk.Button(bar, text="Nowe konto", command=lambda: AccountDialog(self, None)).pack(side="left")
-        ttk.Button(bar, text="Edytuj", command=self.edit_account).pack(side="left", padx=4)
-        ttk.Button(bar, text="Usuń", command=self.delete_account).pack(side="left")
-        ttk.Button(bar, text="Ustaw hasło zaznaczonym…", command=self.set_password_selected).pack(side="left", padx=4)
-        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=8)
-        ttk.Button(bar, text="Kopiuj login", command=lambda: self.copy_account_field("login")).pack(side="left")
-        ttk.Button(bar, text="Kopiuj hasło", command=lambda: self.copy_account_field("password")).pack(
+        ttk.Button(bar, text=tr("New account"), command=lambda: AccountDialog(self, None)).pack(side="left")
+        ttk.Button(bar, text=tr("Edit"), command=self.edit_account).pack(side="left", padx=4)
+        ttk.Button(bar, text=tr("Delete"), command=self.delete_account).pack(side="left")
+        ttk.Button(bar, text=tr("Set password for selected…"), command=self.set_password_selected).pack(
             side="left", padx=4)
-        ttk.Button(bar, text="Kopiuj e-mail", command=lambda: self.copy_account_field("email")).pack(side="left")
-        ttk.Button(bar, text="Kopiuj hasło maila",
+        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=8)
+        ttk.Button(bar, text=tr("Copy login"), command=lambda: self.copy_account_field("login")).pack(side="left")
+        ttk.Button(bar, text=tr("Copy password"), command=lambda: self.copy_account_field("password")).pack(
+            side="left", padx=4)
+        ttk.Button(bar, text=tr("Copy e-mail"), command=lambda: self.copy_account_field("email")).pack(side="left")
+        ttk.Button(bar, text=tr("Copy e-mail password"),
                    command=lambda: self.copy_account_field("email_password")).pack(side="left", padx=4)
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=8)
-        ttk.Button(bar, text="Dodaj postać do konta…", command=self.add_character_to_selected).pack(side="left")
+        ttk.Button(bar, text=tr("Add character to account…"), command=self.add_character_to_selected).pack(
+            side="left")
 
         bar2 = ttk.Frame(tab)
         bar2.pack(fill="x", pady=4)
-        ttk.Label(bar2, text="Szukaj (nazwa, login, e-mail, postać, notatki):").pack(side="left")
+        ttk.Label(bar2, text=tr("Search (name, login, e-mail, character, notes):")).pack(side="left")
         self.account_filter = tk.StringVar()
         self.account_filter.trace_add("write", lambda *_: self.refresh_accounts())
         ttk.Entry(bar2, textvariable=self.account_filter, width=40).pack(side="left", padx=4)
-        ttk.Button(bar2, text="Eksport CSV…", command=self.export_csv).pack(side="right")
-        ttk.Button(bar2, text="Import CSV…", command=self.import_csv).pack(side="right", padx=4)
-        ttk.Button(bar2, text="Wklej konta…", command=lambda: PasteAccountsDialog(self)).pack(side="right")
+        ttk.Button(bar2, text=tr("Export CSV…"), command=self.export_csv).pack(side="right")
+        ttk.Button(bar2, text=tr("Import CSV…"), command=self.import_csv).pack(side="right", padx=4)
+        ttk.Button(bar2, text=tr("Paste accounts…"), command=lambda: PasteAccountsDialog(self)).pack(side="right")
         self.accounts_count = tk.StringVar()
         ttk.Label(bar2, textvariable=self.accounts_count).pack(side="left", padx=10)
 
-        self.accounts_table = Table(tab, [("name", "Nazwa", 150), ("login", "Login", 160), ("email", "E-mail", 220),
-                                          ("characters", "Postacie", 330), ("omega_until", "Omega do", 90),
-                                          ("notes", "Notatki", 200)])
+        self.accounts_table = Table(tab, [("name", tr("Name"), 150), ("login", tr("Login"), 160),
+                                          ("email", tr("E-mail"), 220), ("characters", tr("Characters"), 330),
+                                          ("omega_until", tr("Omega until"), 90), ("notes", tr("Notes"), 200)])
         self.accounts_table.pack(fill="both", expand=True)
         self.accounts_table.tree.bind("<Double-1>", lambda e: self.edit_account())
         self.accounts_table.tree.bind(
@@ -602,13 +625,17 @@ class App(tk.Tk):
 
     def _build_settings_tab(self):
         tab = ttk.Frame(self.nb, padding=12)
-        self.nb.add(tab, text="Ustawienia")
+        self.nb.add(tab, text=tr("Settings"))
         tab.columnconfigure(1, weight=1)
-        self.set_client_id, _ = labeled_entry(tab, 0, "Client ID aplikacji EVE", width=50)
-        self.set_secret, _ = labeled_entry(tab, 1, "Secret Key (opcjonalnie)", show="•", width=50)
-        self.set_port, _ = labeled_entry(tab, 2, "Port callbacku", width=10)
-        self.set_auto, _ = labeled_entry(tab, 3, "Auto-odświeżanie co (min, 0 = wył.)", width=10)
-        self.set_workers, _ = labeled_entry(tab, 4, "Równoległe pobieranie (1–10)", width=10)
+        self.set_client_id, _ = labeled_entry(tab, 0, tr("EVE app Client ID"), width=50)
+        self.set_secret, _ = labeled_entry(tab, 1, tr("Secret Key (optional)"), show="•", width=50)
+        self.set_port, _ = labeled_entry(tab, 2, tr("Callback port"), width=10)
+        self.set_auto, _ = labeled_entry(tab, 3, tr("Auto refresh every (min, 0 = off)"), width=10)
+        self.set_workers, _ = labeled_entry(tab, 4, tr("Parallel downloads (1–10)"), width=10)
+        ttk.Label(tab, text="Language / Język").grid(row=5, column=0, sticky="w", padx=6, pady=3)
+        self.set_language = tk.StringVar(value=i18n.LANGUAGES[i18n.get_language()])
+        ttk.Combobox(tab, textvariable=self.set_language, values=list(i18n.LANGUAGES.values()), width=12,
+                     state="readonly").grid(row=5, column=1, sticky="w", padx=6, pady=3)
         cfg = self.sso_config()
         self.set_client_id.set(cfg["client_id"])
         self.set_secret.set(cfg["client_secret"])
@@ -616,38 +643,38 @@ class App(tk.Tk):
         self.set_auto.set(self.db.get_setting("auto_minutes", "30"))
         self.set_workers.set(self.db.get_setting("workers", "6"))
         btns = ttk.Frame(tab)
-        btns.grid(row=5, column=1, sticky="w", padx=6, pady=8)
-        ttk.Button(btns, text="Zapisz ustawienia", command=self.save_settings).pack(side="left")
-        ttk.Button(btns, text="Zmień hasło główne…", command=self.change_master_password).pack(side="left", padx=6)
-        ttk.Button(btns, text="Sprawdź aplikację EVE", command=self.check_eve_app).pack(side="left")
+        btns.grid(row=6, column=1, sticky="w", padx=6, pady=8)
+        ttk.Button(btns, text=tr("Save settings"), command=self.save_settings).pack(side="left")
+        ttk.Button(btns, text=tr("Change master password…"), command=self.change_master_password).pack(
+            side="left", padx=6)
+        ttk.Button(btns, text=tr("Check EVE app"), command=self.check_eve_app).pack(side="left")
 
-        help_text = (
-            "Jak przygotować logowanie postaci (raz):\n"
-            f"1. Wejdź na {DEV_PORTAL} i utwórz aplikację (Create New Application).\n"
-            "2. Connection Type: Authentication & API Access. Zaznacz uprawnienia z listy poniżej.\n"
-            "3. Callback URL: http://localhost:<port>/callback (domyślnie http://localhost:8765/callback).\n"
-            "4. Skopiuj Client ID tutaj i zapisz. Secret Key wpisz tylko, jeśli chcesz (PKCE działa bez niego).\n\n"
-            "Hasło do gry nie jest potrzebne do pobierania danych: każdą postać logujesz raz, a aplikacja\n"
-            "trzyma zaszyfrowany token. Wszystko jest zapisane tylko na tym komputerze:\n"
-            f"{self.db.path}\n\nWymagane uprawnienia (scopes):\n" + "\n".join(sso.SCOPES)
-        )
+        help_text = tr(
+            "How to set up character login (once):\n"
+            "1. Go to {portal} and create an app (Create New Application).\n"
+            "2. Connection Type: Authentication & API Access. Tick the scopes from the list below.\n"
+            "3. Callback URL: http://localhost:<port>/callback (default http://localhost:8765/callback).\n"
+            "4. Copy the Client ID here and save. Enter the Secret Key only if you want to (PKCE works without it).\n\n"
+            "The game password is not needed to fetch data: each character logs in once and the app\n"
+            "keeps an encrypted token. Everything is stored only on this computer:\n"
+            "{path}\n\nRequired scopes:\n", portal=DEV_PORTAL, path=self.db.path) + "\n".join(sso.SCOPES)
         txt = tk.Text(tab, height=20, wrap="word", relief="flat", background=self.cget("background"),
                       font="TkDefaultFont")
         txt.insert("1.0", help_text)
         txt.configure(state="disabled")
-        txt.grid(row=6, column=0, columnspan=2, sticky="nsew", padx=6)
-        tab.rowconfigure(6, weight=1)
+        txt.grid(row=7, column=0, columnspan=2, sticky="nsew", padx=6)
+        tab.rowconfigure(7, weight=1)
         links = ttk.Frame(tab)
-        links.grid(row=7, column=0, columnspan=2, sticky="w", padx=6)
-        ttk.Button(links, text="Otwórz developers.eveonline.com",
+        links.grid(row=8, column=0, columnspan=2, sticky="w", padx=6)
+        ttk.Button(links, text=tr("Open developers.eveonline.com"),
                    command=lambda: webbrowser.open(DEV_PORTAL)).pack(side="left")
-        ttk.Button(links, text="Kopiuj listę uprawnień",
+        ttk.Button(links, text=tr("Copy scope list"),
                    command=lambda: self.copy_secret(" ".join(sso.SCOPES), False)).pack(side="left", padx=6)
-        ttk.Button(links, text="Kopiuj callback URL",
+        ttk.Button(links, text=tr("Copy callback URL"),
                    command=lambda: self.copy_secret(sso.redirect_uri(self.sso_config()["port"]), False)).pack(
             side="left")
 
-    # --- odświeżanie widoków -------------------------------------------------
+    # --- refreshing views -------------------------------------------------
 
     def refresh_views(self):
         self.refresh_alerts()
@@ -655,7 +682,8 @@ class App(tk.Tk):
         self.refresh_wealth()
         self.refresh_accounts()
         last = self.db.query("SELECT MAX(last_sync) FROM characters")[0][0]
-        self.last_sync_var.set(f"Ostatnie pobranie: {self._local_time(last)}" if last else "Jeszcze nic nie pobrano")
+        self.last_sync_var.set(tr("Last fetch: {time}", time=self._local_time(last)) if last
+                               else tr("Nothing fetched yet"))
 
     @staticmethod
     def _local_time(iso: str) -> str:
@@ -669,13 +697,14 @@ class App(tk.Tk):
         now = datetime.now().astimezone()
         alerts = reports.build_alerts(self.db)
         rows = [{"severity": a.severity_label, "account": a.account, "character": a.character, "what": a.what,
-                 "when": reports.fmt_delta(a.when, now) if a.when else "", "_sort": {"severity": a.severity}}
-                for a in alerts]
-        self.alerts_table.set_rows(rows, tag_key="severity")
+                 "when": reports.fmt_delta(a.when, now) if a.when else "", "_sort": {"severity": a.severity},
+                 "_tag": f"sev{a.severity}"} for a in alerts]
+        self.alerts_table.set_rows(rows, tag_key="_tag")
         urgent = sum(1 for a in alerts if a.severity == 0)
         soon = sum(1 for a in alerts if a.severity == 1)
-        self.alerts_summary.set(f"Pilne: {urgent}   Wkrótce: {soon}" if alerts else "Brak uwag. Wszystko gra.")
-        self.nb.tab(0, text=f"Uwagi ({urgent})" if urgent else "Uwagi")
+        self.alerts_summary.set(tr("Urgent: {urgent}   Soon: {soon}", urgent=urgent, soon=soon) if alerts
+                                else tr("No alerts. All good."))
+        self.nb.tab(0, text=tr("Alerts") + (f" ({urgent})" if urgent else ""))
 
     def refresh_chars(self):
         rows = reports.character_rows(self.db)
@@ -684,20 +713,21 @@ class App(tk.Tk):
             rows = [r for r in rows if text in r["character"].lower() or text in r["account"].lower()
                     or text in r["system"].lower()]
         for r in rows:
-            r["_tag"] = "bad" if r["status"] != "OK" else ""
+            r["_tag"] = "" if r["ok"] else "bad"
         self.chars_table.set_rows(rows, iid_key="character_id", tag_key="_tag")
 
     def refresh_wealth(self):
         t = reports.totals(self.db)
-        self.totals_var.set(
-            f"Konta: {t['accounts']}    Postacie: {t['chars']}    SP razem: {reports.fmt_sp(t['sp'])}\n"
-            f"Portfele: {reports.fmt_isk(t['wallet'])} ISK    Assety: {reports.fmt_isk(t['assets'])} ISK    "
-            f"Razem: {reports.fmt_isk(t['total'])} ISK")
+        self.totals_var.set(tr(
+            "Accounts: {accounts}    Characters: {chars}    Total SP: {sp}\n"
+            "Wallets: {wallet} ISK    Assets: {assets} ISK    Total: {total} ISK",
+            accounts=t["accounts"], chars=t["chars"], sp=reports.fmt_sp(t["sp"]), wallet=reports.fmt_isk(t["wallet"]),
+            assets=reports.fmt_isk(t["assets"]), total=reports.fmt_isk(t["total"])))
 
     def refresh_accounts(self):
         rows = [dict(r) for r in self.db.list_accounts(self.account_filter.get().strip())]
         self.accounts_table.set_rows(rows, iid_key="id")
-        self.accounts_count.set(f"{len(rows)} kont")
+        self.accounts_count.set(tr("{n} accounts", n=len(rows)))
 
     def search_items(self):
         rows = reports.find_items(self.db, self.item_query.get())
@@ -706,14 +736,15 @@ class App(tk.Tk):
             r["_sort"] = {"value": r["value"], "qty": r["qty"]}
             r["value"] = reports.fmt_isk(r["value"])
         self.items_table.set_rows(rows)
-        self.items_summary.set(f"{len(rows)} wyników, razem {reports.fmt_isk(total)} ISK" if rows else "Brak wyników")
+        self.items_summary.set(tr("{n} results, {total} ISK in total", n=len(rows), total=reports.fmt_isk(total))
+                               if rows else tr("No results"))
 
-    # --- akcje: konta --------------------------------------------------------
+    # --- actions: accounts --------------------------------------------------------
 
     def _selected_account_id(self) -> int | None:
         rows = self.accounts_table.selected_rows()
         if not rows:
-            messagebox.showinfo("Konta", "Zaznacz konto na liście.", parent=self)
+            messagebox.showinfo(tr("Accounts"), tr("Select an account in the list."), parent=self)
             return None
         return int(rows[0]["id"])
 
@@ -725,12 +756,13 @@ class App(tk.Tk):
     def delete_account(self):
         rows = self.accounts_table.selected_rows()
         if not rows:
-            messagebox.showinfo("Konta", "Zaznacz konta do usunięcia (Ctrl/Shift = kilka, Ctrl+A = wszystkie).",
+            messagebox.showinfo(tr("Accounts"),
+                                tr("Select the accounts to delete (Ctrl/Shift = several, Ctrl+A = all)."),
                                 parent=self)
             return
-        label = (rows[0]["name"] or rows[0]["login"]) if len(rows) == 1 else f"{len(rows)} kont"
-        if messagebox.askyesno("Usuń konta", f"Usunąć {label}?\n"
-                               "Postacie zostaną, ale bez przypisanego konta.", parent=self):
+        label = (rows[0]["name"] or rows[0]["login"]) if len(rows) == 1 else tr("{n} accounts", n=len(rows))
+        if messagebox.askyesno(tr("Delete accounts"), tr("Delete {label}?\n"
+                               "The characters stay, but without an assigned account.", label=label), parent=self):
             for r in rows:
                 self.db.delete_account(int(r["id"]))
             self.refresh_views()
@@ -755,16 +787,18 @@ class App(tk.Tk):
     def set_password_selected(self):
         rows = self.accounts_table.selected_rows()
         if not rows:
-            messagebox.showinfo("Konta", "Zaznacz konta (Ctrl+A = wszystkie, Ctrl/Shift = kilka).", parent=self)
+            messagebox.showinfo(tr("Accounts"), tr("Select accounts (Ctrl+A = all, Ctrl/Shift = several)."),
+                                parent=self)
             return
-        pw = simpledialog.askstring("Ustaw hasło", f"Nowe hasło EVE dla {len(rows)} kont:", show="*", parent=self)
+        pw = simpledialog.askstring(tr("Set password"), tr("New EVE password for {n} accounts:", n=len(rows)),
+                                    show="*", parent=self)
         if not pw:
             return
         enc = self.vault.encrypt(pw)
         for r in rows:
             self.db.update_account(int(r["id"]), password_enc=enc)
         self.refresh_views()
-        self.set_status(f"Ustawiono hasło dla {len(rows)} kont.")
+        self.set_status(tr("Password set for {n} accounts.", n=len(rows)))
 
     def enabled_scopes(self) -> list[str]:
         disabled = set(self.db.get_setting("disabled_scopes").split())
@@ -775,16 +809,16 @@ class App(tk.Tk):
             self.save_settings()
         cfg = self.sso_config()
         if not cfg["client_id"]:
-            messagebox.showwarning("EveKonta", "Najpierw wpisz Client ID i zapisz ustawienia.", parent=self)
+            messagebox.showwarning("EveKonta", tr("First enter the Client ID and save the settings."), parent=self)
             return
-        self.set_status("Sprawdzam aplikację EVE…")
+        self.set_status(tr("Checking the EVE app…"))
 
         def work():
             try:
                 result = sso.check_app(cfg["client_id"], cfg["port"])
             except OSError as exc:
-                msg = f"Brak połączenia z serwerem logowania EVE: {exc}"
-                self.ui(lambda: messagebox.showerror("Sprawdzenie aplikacji EVE", msg, parent=self))
+                msg = tr("No connection to the EVE login server: {error}", error=exc)
+                self.ui(lambda: messagebox.showerror(tr("EVE app check"), msg, parent=self))
                 return
             self.ui(lambda: self._show_app_check(result, cfg["port"]))
 
@@ -792,63 +826,65 @@ class App(tk.Tk):
 
     def _show_app_check(self, result: sso.AppCheck, port: int):
         text = sso.explain_check(result, port)
-        self.set_status("Sprawdzenie aplikacji EVE zakończone.")
+        self.set_status(tr("EVE app check finished."))
         if result.ok:
             self.db.set_setting("disabled_scopes", "")
-            messagebox.showinfo("Sprawdzenie aplikacji EVE", text, parent=self)
+            messagebox.showinfo(tr("EVE app check"), text, parent=self)
         elif result.error == "invalid_scope" and result.rejected:
-            if messagebox.askyesno("Sprawdzenie aplikacji EVE", text + (
-                    "\n\nNajlepiej zaznaczyć je na stronie EVE. Czy na razie logować postacie BEZ nich? "
-                    "(dane z tych uprawnień nie będą pobierane)"), parent=self):
+            if messagebox.askyesno(tr("EVE app check"), text + tr(
+                    "\n\nBest tick them on the EVE site. Log characters in WITHOUT them for now? "
+                    "(data from these scopes will not be fetched)"), parent=self):
                 self.db.set_setting("disabled_scopes", " ".join(result.rejected))
         else:
-            messagebox.showerror("Sprawdzenie aplikacji EVE", text, parent=self)
+            messagebox.showerror(tr("EVE app check"), text, parent=self)
 
     def import_csv(self):
-        messagebox.showinfo("Import CSV", (
-            "Plik CSV (np. zapisany z Excela) z nagłówkiem w pierwszym wierszu.\n"
-            "Rozpoznawane kolumny: nazwa, login, haslo, email, haslo_email, omega, notatki.\n"
-            "Konta z loginem, który już jest w bazie, zostaną pominięte.\n\n"
-            "Po imporcie usuń plik CSV z dysku – hasła są w nim jawne."), parent=self)
-        path = filedialog.askopenfilename(parent=self, filetypes=[("CSV", "*.csv"), ("Wszystkie", "*.*")])
+        messagebox.showinfo(tr("Import CSV"), tr(
+            "A CSV file (e.g. saved from Excel) with a header in the first row.\n"
+            "Recognized columns: name, login, password, email, email_password, omega, notes "
+            "(Polish names work too).\n"
+            "Accounts whose login is already in the database are skipped.\n\n"
+            "Delete the CSV file after importing – the passwords in it are plain text."), parent=self)
+        path = filedialog.askopenfilename(parent=self, filetypes=[("CSV", "*.csv"), (tr("All files"), "*.*")])
         if not path:
             return
         try:
             added, skipped = csvio.import_accounts(self.db, self.vault, Path(path))
         except (ValueError, OSError) as exc:
-            messagebox.showerror("Import CSV", str(exc), parent=self)
+            messagebox.showerror(tr("Import CSV"), str(exc), parent=self)
             return
         self.refresh_views()
-        messagebox.showinfo("Import CSV", f"Dodano: {added}\nPominięto (duplikaty): {skipped}", parent=self)
+        messagebox.showinfo(tr("Import CSV"), tr("Added: {added}\nSkipped (duplicates): {skipped}", added=added,
+                                                    skipped=skipped), parent=self)
 
     def export_csv(self):
         with_pw = messagebox.askyesnocancel(
-            "Eksport CSV", "Dołączyć hasła?\n\nTak = plik z jawnymi hasłami (trzymaj go bezpiecznie!)\n"
-                           "Nie = bez haseł", parent=self)
+            tr("Export CSV"), tr("Include passwords?\n\nYes = file with plain-text passwords (keep it safe!)\n"
+                                 "No = without passwords"), parent=self)
         if with_pw is None:
             return
-        path = filedialog.asksaveasfilename(parent=self, defaultextension=".csv", initialfile="konta-eve.csv",
+        path = filedialog.asksaveasfilename(parent=self, defaultextension=".csv", initialfile=tr("eve-accounts.csv"),
                                             filetypes=[("CSV", "*.csv")])
         if path:
             count = csvio.export_accounts(self.db, self.vault, Path(path), bool(with_pw))
-            self.set_status(f"Zapisano {count} kont do {path}")
+            self.set_status(tr("Saved {n} accounts to {path}", n=count, path=path))
 
-    # --- akcje: postacie -----------------------------------------------------
+    # --- actions: characters -----------------------------------------------------
 
     def add_character(self, account_id: int | None):
         if account_id is None:
-            account_id = self._pick_account("Do którego konta należy postać?")
+            account_id = self._pick_account(tr("Which account does the character belong to?"))
             if account_id == -1:
                 return
         AddCharacterDialog(self, account_id)
 
     def _pick_account(self, prompt: str) -> int | None:
-        """Zwraca ID konta, None (bez konta) albo -1 (anulowano)."""
+        """Returns the account ID, None (no account) or -1 (cancelled)."""
         accounts = self.db.list_accounts()
-        labels = ["(bez konta)"] + [f"{a['name'] or a['login'] or a['email']}  [{a['login']}]" for a in accounts]
+        labels = [tr("(no account)")] + [f"{a['name'] or a['login'] or a['email']}  [{a['login']}]" for a in accounts]
         ids = [None] + [a["id"] for a in accounts]
         win = tk.Toplevel(self)
-        win.title("Wybierz konto")
+        win.title(tr("Choose account"))
         win.transient(self)
         ttk.Label(win, text=prompt, padding=8).pack(anchor="w")
         var = tk.StringVar(value=labels[0])
@@ -868,14 +904,14 @@ class App(tk.Tk):
     def _selected_char_ids(self) -> list[int]:
         rows = self.chars_table.selected_rows()
         if not rows:
-            messagebox.showinfo("Postacie", "Zaznacz postać (Ctrl/Shift = kilka).", parent=self)
+            messagebox.showinfo(tr("Characters"), tr("Select a character (Ctrl/Shift = several)."), parent=self)
         return [int(r["character_id"]) for r in rows]
 
     def assign_character(self):
         ids = self._selected_char_ids()
         if not ids:
             return
-        acc = self._pick_account(f"Przypisz {len(ids)} postać/postacie do konta:")
+        acc = self._pick_account(tr("Assign {n} character(s) to account:", n=len(ids)))
         if acc == -1:
             return
         for cid in ids:
@@ -884,7 +920,8 @@ class App(tk.Tk):
 
     def delete_character(self):
         ids = self._selected_char_ids()
-        if ids and messagebox.askyesno("Usuń", f"Usunąć {len(ids)} postać/postacie z aplikacji?", parent=self):
+        if ids and messagebox.askyesno(tr("Remove"), tr("Remove {n} character(s) from the app?", n=len(ids)),
+                                       parent=self):
             for cid in ids:
                 self.db.delete_character(cid)
             self.refresh_views()
@@ -900,14 +937,14 @@ class App(tk.Tk):
         if ids:
             self.start_sync(ids)
 
-    # --- pobieranie ----------------------------------------------------------
+    # --- fetching ----------------------------------------------------------
 
     def start_sync(self, only: list[int] | None = None):
         if self._sync_thread and self._sync_thread.is_alive():
             return
         if not self.sso_config()["client_id"]:
             self.nb.select(4)
-            messagebox.showinfo("EveKonta", "Najpierw wpisz Client ID w Ustawieniach.", parent=self)
+            messagebox.showinfo("EveKonta", tr("First enter the Client ID in Settings."), parent=self)
             return
         self._cancel.clear()
         self.refresh_btn.configure(state="disabled")
@@ -917,7 +954,7 @@ class App(tk.Tk):
 
         def progress(done, total, name):
             self.ui(lambda: (self.progress.configure(maximum=max(total, 1), value=done),
-                             self.set_status(f"Pobieram {done}/{total}: {name}")))
+                             self.set_status(tr("Fetching {done}/{total}: {name}", done=done, total=total, name=name))))
 
         def work():
             started = time.monotonic()
@@ -933,12 +970,12 @@ class App(tk.Tk):
                     self.syncer.compute_values()
                 else:
                     errors = self.syncer.sync_all(progress, workers=workers, cancel=self._cancel)
-                msg = f"Gotowe w {time.monotonic() - started:.0f} s."
+                msg = tr("Done in {s} s.", s=f"{time.monotonic() - started:.0f}")
                 if errors:
-                    msg += f" Problemy: {len(errors)} (szczegóły w kolumnie Status)."
+                    msg += tr(" Problems: {n} (details in the Status column).", n=len(errors))
             except Exception as exc:  # noqa: BLE001
                 traceback.print_exc()
-                msg = f"Błąd pobierania: {type(exc).__name__}: {exc}"
+                msg = tr("Fetch error: {error}", error=f"{type(exc).__name__}: {exc}")
             self.ui(lambda: self._sync_finished(msg))
 
         self._sync_thread = threading.Thread(target=work, daemon=True)
@@ -962,7 +999,7 @@ class App(tk.Tk):
         minutes = self._int_setting("auto_minutes", 30, 0, 1440)
         has_chars = self.db.query("SELECT COUNT(*) FROM characters WHERE token_ok=1")[0][0]
         if minutes and has_chars and time.monotonic() >= self._next_auto and self.sso_config()["client_id"]:
-            if self._next_auto:  # nie od razu przy starcie, chyba że dane są stare
+            if self._next_auto:  # not right at start, unless the data is old
                 self.start_sync()
             else:
                 last = self.db.query("SELECT MIN(last_sync) FROM characters WHERE token_ok=1")[0][0]
@@ -974,14 +1011,14 @@ class App(tk.Tk):
             self._next_auto = time.monotonic() + max(minutes, 1) * 60
         self.after(60_000, self._schedule_auto)
 
-    # --- ustawienia ----------------------------------------------------------
+    # --- settings ----------------------------------------------------------
 
     def save_settings(self):
         try:
             port = int(self.set_port.get())
             assert 1024 <= port <= 65535
         except (ValueError, AssertionError):
-            messagebox.showwarning("Ustawienia", "Port musi być liczbą 1024–65535.", parent=self)
+            messagebox.showwarning(tr("Settings"), tr("The port must be a number 1024–65535."), parent=self)
             return
         self.db.set_setting("client_id", self.set_client_id.get().strip())
         secret = self.set_secret.get().strip()
@@ -990,26 +1027,34 @@ class App(tk.Tk):
         self.db.set_setting("auto_minutes", self.set_auto.get().strip() or "0")
         self.db.set_setting("workers", self.set_workers.get().strip() or "6")
         self.syncer = self._make_syncer()
-        self.set_status("Ustawienia zapisane.")
+        language = next((code for code, name in i18n.LANGUAGES.items() if name == self.set_language.get()),
+                        i18n.DEFAULT_LANGUAGE)
+        changed = language != i18n.get_language()
+        self.db.set_setting("language", language)
+        i18n.set_language(language)
+        if changed:
+            self.rebuild()
+        self.set_status(tr("Settings saved."))
 
     def change_master_password(self):
         if self._sync_thread and self._sync_thread.is_alive():
-            messagebox.showinfo("Hasło główne", "Poczekaj, aż skończy się pobieranie.", parent=self)
+            messagebox.showinfo(tr("Master password"), tr("Wait until the fetch finishes."), parent=self)
             return
-        old = simpledialog.askstring("Hasło główne", "Obecne hasło główne:", show="*", parent=self)
+        old = simpledialog.askstring(tr("Master password"), tr("Current master password:"), show="*", parent=self)
         if old is None:
             return
         try:
             Vault.unlock(old, bytes.fromhex(self.db.get_setting("master_salt")),
                          self.db.get_setting("master_verifier"))
         except WrongPassword:
-            messagebox.showerror("Hasło główne", "Złe hasło.", parent=self)
+            messagebox.showerror(tr("Master password"), tr("Wrong password."), parent=self)
             return
-        new = simpledialog.askstring("Hasło główne", "Nowe hasło główne (min. 8 znaków):", show="*", parent=self)
+        new = simpledialog.askstring(tr("Master password"), tr("New master password (min. 8 characters):"), show="*",
+                                     parent=self)
         if not new or len(new) < 8:
             return
-        if simpledialog.askstring("Hasło główne", "Powtórz nowe hasło:", show="*", parent=self) != new:
-            messagebox.showwarning("Hasło główne", "Hasła się różnią.", parent=self)
+        if simpledialog.askstring(tr("Master password"), tr("Repeat the new password:"), show="*", parent=self) != new:
+            messagebox.showwarning(tr("Master password"), tr("The passwords do not match."), parent=self)
             return
         salt = new_salt()
         key = derive_key(new, salt)
@@ -1035,7 +1080,7 @@ class App(tk.Tk):
             c.commit()
         self.vault = new_vault
         self.syncer = self._make_syncer()
-        messagebox.showinfo("Hasło główne", "Hasło główne zmienione.", parent=self)
+        messagebox.showinfo(tr("Master password"), tr("Master password changed."), parent=self)
 
     def on_close(self):
         self._cancel.set()
