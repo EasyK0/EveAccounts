@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from evekonta import csvio, reports, sso
+from evekonta import csvio, i18n, reports, sso
 from evekonta.crypto import Vault, WrongPassword, derive_key, new_salt, verifier_for
 from evekonta.net import EsiClient, EsiError, Response
 from evekonta.storage import Db
@@ -85,7 +85,7 @@ def test_asset_roots():
 
 
 class FakeEve:
-    """Udaje SSO i ESI dla jednej postaci."""
+    """Fakes SSO and ESI for one character."""
 
     def __init__(self):
         self.refresh_calls = 0
@@ -167,9 +167,9 @@ def test_full_sync_flow(db, vault):
     assert c["name"] == "Alt Jeden" and c["account_name"] == "Konto 1"
     assert c["total_sp"] == 25_000_000 and c["wallet"] == pytest.approx(1_500_000_000.5)
     assert c["queue_len"] == 0
-    # 3 Riftery * 400k; kopia BP i Tritanium (5 ISK * 1000) wg cen
+    # 3 Rifters * 400k; BP copy, and Tritanium (5 ISK * 1000) by price
     assert c["assets_value"] == pytest.approx(3 * 400_000 + 5000)
-    # token z cache (bez nowego refresh), refresh token zapisany zaszyfrowany
+    # token from cache (no new refresh), refresh token stored encrypted
     assert fake.refresh_calls == 1
     assert vault.decrypt(c["refresh_enc"]) == "rt1"
 
@@ -177,23 +177,32 @@ def test_full_sync_flow(db, vault):
     locations = {(r["item"], r["location"]) for r in found}
     assert ("Rifter", "Jita IV - Moon 4 - CNAP") in locations
     assert ("Rifter", "Perimeter - Tranquility Trading Tower") in locations
-    assert any(r["item"] == "Rifter Blueprint (kopia BP)" and r["value"] == 0 for r in found)
+    assert any(r["item"] == "Rifter Blueprint (BP copy)" and r["value"] == 0 for r in found)
     trit = reports.find_items(db, "trit")[0]
     assert trit["location"] == "Jita IV - Moon 4 - CNAP" and trit["qty"] == 1000
 
     alerts = reports.build_alerts(db, NOW)
     whats = [a.what for a in alerts]
-    assert "Kolejka skilli pusta" in whats
-    assert any(w.startswith("Produkcja gotowa: Rifter") for w in whats)
-    assert any(w.startswith("Ekstraktor PI kończy się: Jita") for w in whats)
+    assert "Skill queue empty" in whats
+    assert any(w.startswith("Manufacturing ready: Rifter") for w in whats)
+    assert any(w.startswith("PI extractor ending: Jita") for w in whats)
     assert alerts[0].severity == 0
 
     rows = reports.character_rows(db, NOW)
-    assert rows[0]["queue"] == "PUSTA" and rows[0]["jobs"] == "1/1" and rows[0]["system"] == "Jita"
+    assert rows[0]["queue"] == "EMPTY" and rows[0]["jobs"] == "1/1" and rows[0]["system"] == "Jita"
     assert rows[0]["wallet"] == "1.50B"
 
     t = reports.totals(db)
     assert t["accounts"] == 1 and t["chars"] == 1
+
+    i18n.set_language("pl")
+    try:
+        whats = [a.what for a in reports.build_alerts(db, NOW)]
+        assert "Kolejka skilli pusta" in whats
+        assert any(w.startswith("Produkcja gotowa: Rifter") for w in whats)
+        assert reports.character_rows(db, NOW)[0]["queue"] == "PUSTA"
+    finally:
+        i18n.set_language("en")
 
 
 def test_invalid_token_marks_character(db, vault):
@@ -202,11 +211,11 @@ def test_invalid_token_marks_character(db, vault):
     syncer.add_token(sso.refresh("start", "cid", transport=fake, now=NOW_TS), None)
     syncer._tokens.clear()
     fake.invalid = True
-    assert "zaloguj" in syncer.sync_character(90000001).lower()
+    assert "log the character in again" in syncer.sync_character(90000001)
     assert db.list_characters()[0]["token_ok"] == 0
     alerts = reports.build_alerts(db, NOW)
-    assert alerts[0].what.startswith("Token nieważny")
-    # sync_all pomija postacie z nieważnym tokenem
+    assert alerts[0].what.startswith("Login expired")
+    # sync_all skips characters with an invalid token
     assert syncer.sync_all() == {}
 
 
@@ -251,12 +260,17 @@ def test_account_search_and_csv(db, vault, tmp_path):
     assert db.list_accounts("pochven")[0]["login"] == "dawid_main"
 
     alerts = reports.build_alerts(db, NOW)
-    assert any(a.what == "Omega kończy się" and a.account == "Main" for a in alerts)
+    assert any(a.what == "Omega ending" and a.account == "Main" for a in alerts)
 
     out = tmp_path / "out.csv"
     assert csvio.export_accounts(db, vault, out, include_passwords=True) == 2
     text = out.read_text(encoding="utf-8-sig")
     assert "Pw1" in text and "mailpw" in text
+    assert text.splitlines()[0] == "name;login;password;email;email_password;omega;notes;characters"
+    # an English export can be imported again
+    db2 = Db(":memory:")
+    assert csvio.import_accounts(db2, vault, out) == (2, 0)
+    db2.close()
     csvio.export_accounts(db, vault, out, include_passwords=False)
     assert "Pw1" not in out.read_text(encoding="utf-8-sig")
 
@@ -293,7 +307,7 @@ def test_parse_pasted_formats(db, vault):
     rows = csvio.parse_pasted("alt6;alt6@wp.pl\nalt7 alt7@wp.pl Pochven\n", with_passwords=False)
     assert rows == [{"login": "alt6", "password": "", "email": "alt6@wp.pl", "notes": ""},
                     {"login": "alt7", "password": "", "email": "alt7@wp.pl", "notes": "Pochven"}]
-    # nagłówek decyduje o kolumnach, także bez zaznaczonej opcji "bez haseł"
+    # the header decides the columns, also without the "no passwords" option
     rows = csvio.parse_pasted("login;email\nPochvenCrab1;sole@gmail.com\nPochvenCrab2;sole@gmail.com\n")
     assert rows[0]["login"] == "PochvenCrab1" and rows[0]["email"] == "sole@gmail.com"
     assert rows[0]["password"] == "" and len(rows) == 2

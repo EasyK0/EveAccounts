@@ -1,10 +1,11 @@
-"""Uwagi (alerty), podsumowania i wyszukiwanie przedmiotów."""
+"""Alerts, totals and item search."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
+from .i18n import tr
 from .storage import Db
 from .sync import parse_ts
 
@@ -12,15 +13,16 @@ QUEUE_WARN = timedelta(hours=24)
 PI_WARN = timedelta(hours=6)
 OMEGA_WARN = timedelta(days=3)
 
-ACTIVITIES = {1: "Produkcja", 3: "Badanie TE", 4: "Badanie ME", 5: "Kopiowanie", 8: "Inwencja", 9: "Reakcja",
-              11: "Reakcja"}
+# English names; tr() translates them when shown
+ACTIVITIES = {1: "Manufacturing", 3: "TE research", 4: "ME research", 5: "Copying", 8: "Invention", 9: "Reaction",
+              11: "Reaction"}
 
 LEVELS = {1: "I", 2: "II", 3: "III", 4: "IV", 5: "V"}
 
 
 @dataclass
 class Alert:
-    severity: int  # 0 = pilne, 1 = wkrótce, 2 = informacja
+    severity: int  # 0 = urgent, 1 = soon, 2 = info
     character: str
     account: str
     what: str
@@ -28,7 +30,7 @@ class Alert:
 
     @property
     def severity_label(self) -> str:
-        return ("PILNE", "WKRÓTCE", "INFO")[self.severity]
+        return tr(("URGENT", "SOON", "INFO")[self.severity])
 
 
 def fmt_isk(value: float | None) -> str:
@@ -59,11 +61,11 @@ def fmt_delta(when: datetime | None, now: datetime) -> str:
         text = f"{hours}h {minutes}m"
     else:
         text = f"{minutes}m"
-    return f"{text} temu" if past else f"za {text}"
+    return tr("{text} ago", text=text) if past else tr("in {text}", text=text)
 
 
 def _account_label(row) -> str:
-    return row["account_name"] or row["account_login"] or "(bez konta)"
+    return row["account_name"] or row["account_login"] or tr("(no account)")
 
 
 def parse_omega(value: str) -> datetime | None:
@@ -85,20 +87,21 @@ def build_alerts(db: Db, now: datetime | None = None) -> list[Alert]:
     for c in chars:
         acc = _account_label(c)
         if not c["token_ok"]:
-            alerts.append(Alert(0, c["name"], acc, "Token nieważny: zaloguj postać ponownie", None))
+            alerts.append(Alert(0, c["name"], acc, tr("Login expired: log the character in again"), None))
             continue
         if not c["last_sync"]:
             continue
         if c["queue_len"] is not None:
             end = parse_ts(c["queue_end"])
             if c["queue_paused"]:
-                alerts.append(Alert(0, c["name"], acc, "Kolejka skilli wstrzymana", None))
+                alerts.append(Alert(0, c["name"], acc, tr("Skill queue paused"), None))
             elif c["queue_len"] == 0:
-                alerts.append(Alert(0, c["name"], acc, "Kolejka skilli pusta", None))
+                alerts.append(Alert(0, c["name"], acc, tr("Skill queue empty"), None))
             elif end and end - now < QUEUE_WARN:
-                alerts.append(Alert(1, c["name"], acc, "Kolejka skilli się kończy", end))
+                alerts.append(Alert(1, c["name"], acc, tr("Skill queue ends soon"), end))
         if c["unallocated_sp"]:
-            alerts.append(Alert(2, c["name"], acc, f"Nieprzydzielone SP: {c['unallocated_sp']:,}".replace(",", " "),
+            sp = f"{c['unallocated_sp']:,}".replace(",", " ")
+            alerts.append(Alert(2, c["name"], acc, tr("Unallocated SP: {sp}", sp=sp),
                                 None))
 
     for j in db.query("SELECT * FROM industry_jobs"):
@@ -107,9 +110,10 @@ def build_alerts(db: Db, now: datetime | None = None) -> list[Alert]:
             continue
         end = parse_ts(j["end_date"])
         product = db.name_of(j["product_type_id"] or j["blueprint_type_id"], "?")
-        activity = ACTIVITIES.get(j["activity_id"], "Job")
+        activity = tr(ACTIVITIES.get(j["activity_id"], "Job"))
         if j["status"] == "ready" or (j["status"] == "active" and end and end <= now):
-            alerts.append(Alert(0, c["name"], _account_label(c), f"{activity} gotowa: {product}", end))
+            what = tr("{activity} ready: {product}", activity=activity, product=product)
+            alerts.append(Alert(0, c["name"], _account_label(c), what, end))
 
     for p in db.query("SELECT * FROM planets WHERE extractors > 0"):
         c = by_id.get(p["character_id"])
@@ -118,9 +122,9 @@ def build_alerts(db: Db, now: datetime | None = None) -> list[Alert]:
         exp = parse_ts(p["expiry"])
         where = f"{db.name_of(p['solar_system_id'], '?')} ({p['planet_type']})"
         if exp is None or exp <= now:
-            alerts.append(Alert(0, c["name"], _account_label(c), f"Ekstraktor PI stoi: {where}", exp))
+            alerts.append(Alert(0, c["name"], _account_label(c), tr("PI extractor stopped: {where}", where=where), exp))
         elif exp - now < PI_WARN:
-            alerts.append(Alert(1, c["name"], _account_label(c), f"Ekstraktor PI kończy się: {where}", exp))
+            alerts.append(Alert(1, c["name"], _account_label(c), tr("PI extractor ending: {where}", where=where), exp))
 
     for a in db.list_accounts():
         omega = parse_omega(a["omega_until"])
@@ -128,9 +132,9 @@ def build_alerts(db: Db, now: datetime | None = None) -> list[Alert]:
             continue
         label = a["name"] or a["login"]
         if omega <= now:
-            alerts.append(Alert(1, a["characters"] or "–", label, "Omega wygasła (wg Twojej daty)", omega))
+            alerts.append(Alert(1, a["characters"] or "–", label, tr("Omega expired (by your date)"), omega))
         elif omega - now < OMEGA_WARN:
-            alerts.append(Alert(1, a["characters"] or "–", label, "Omega kończy się", omega))
+            alerts.append(Alert(1, a["characters"] or "–", label, tr("Omega ending"), omega))
 
     far = datetime.max.replace(tzinfo=timezone.utc)
     alerts.sort(key=lambda a: (a.severity, a.when or far, a.account.lower(), a.character.lower()))
@@ -151,12 +155,14 @@ def location_name(db: Db, location_id, location_type) -> str:
         return "?"
     name = db.name_of(location_id, "")
     if name and name != str(location_id):
-        return name + (" (w kosmosie)" if location_type == "solar_system" else "")
-    return {"structure": f"Struktura {location_id}"}.get(location_type, f"Lokacja {location_id}")
+        return name + (tr(" (in space)") if location_type == "solar_system" else "")
+    if location_type == "structure":
+        return tr("Structure {id}", id=location_id)
+    return tr("Location {id}", id=location_id)
 
 
 def find_items(db: Db, text: str, limit: int = 500) -> list[dict]:
-    """Szuka przedmiotów po nazwie we wszystkich postaciach ("gdzie jest mój Sabre?")."""
+    """Finds items by name across all characters ("where is my Sabre?")."""
     text = text.strip()
     if not text:
         return []
@@ -179,7 +185,7 @@ def find_items(db: Db, text: str, limit: int = 500) -> list[dict]:
     for r in rows:
         value = 0 if r["bpc"] else r["qty"] * r["price"]
         out.append({
-            "item": r["item"] + (" (kopia BP)" if r["bpc"] else ""),
+            "item": r["item"] + (tr(" (BP copy)") if r["bpc"] else ""),
             "character": r["character"],
             "account": r["account"],
             "location": location_name(db, r["root_location_id"], r["root_location_type"]),
@@ -200,9 +206,9 @@ def character_rows(db: Db, now: datetime | None = None) -> list[dict]:
     rows = []
     for c in db.list_characters():
         if c["queue_paused"]:
-            queue = "wstrzymana"
+            queue = tr("paused")
         elif c["queue_len"] == 0:
-            queue = "PUSTA"
+            queue = tr("EMPTY")
         else:
             queue = fmt_delta(parse_ts(c["queue_end"]), now) if c["queue_end"] else "–"
         training = ""
@@ -211,7 +217,8 @@ def character_rows(db: Db, now: datetime | None = None) -> list[dict]:
         job_count, ready = jobs.get(c["character_id"], (0, 0))
         planet_count, first_exp = pi.get(c["character_id"], (0, None))
         if planet_count:
-            pi_text = f"{planet_count} pl., " + ("stoi" if first_exp == "0" else fmt_delta(parse_ts(first_exp), now))
+            first = tr("stopped") if first_exp == "0" else fmt_delta(parse_ts(first_exp), now)
+            pi_text = tr("{n} pl., ", n=planet_count) + first
         else:
             pi_text = "–"
         rows.append({
@@ -226,8 +233,9 @@ def character_rows(db: Db, now: datetime | None = None) -> list[dict]:
             "jobs": f"{ready}/{job_count}" if job_count else "–",
             "pi": pi_text,
             "system": db.name_of(c["solar_system_id"], "–") if c["solar_system_id"] else "–",
+            "ok": bool(c["token_ok"] and not c["last_error"]),
             "status": "OK" if c["token_ok"] and not c["last_error"] else (
-                "ZALOGUJ PONOWNIE" if not c["token_ok"] else "błąd: " + c["last_error"][:80]),
+                tr("LOG IN AGAIN") if not c["token_ok"] else tr("error: ") + c["last_error"][:80]),
             "_sort": {"wallet": c["wallet"] or 0, "assets": c["assets_value"] or 0, "sp": c["total_sp"] or 0,
                       "queue": c["queue_end"] or ("" if c["queue_len"] == 0 else "~")},
         })

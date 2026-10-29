@@ -1,11 +1,11 @@
-"""Szyfrowanie haseł i tokenów.
+"""Encryption of passwords and tokens.
 
-Na Windows dane są szyfrowane przez DPAPI (klucz konta Windows) z dodatkową
-"entropią" wyprowadzoną z hasła głównego aplikacji. Żeby odczytać sejf, trzeba
-więc być zalogowanym na Twoje konto Windows *i* znać hasło główne.
+On Windows data is encrypted with DPAPI (the Windows account key) plus extra
+"entropy" derived from the app's master password. Reading the vault needs both
+your Windows account *and* the master password.
 
-Poza Windows (tylko testy/rozwój) używany jest prosty szyfr strumieniowy na
-SHA-256 + HMAC z kluczem z hasła głównego.
+Outside Windows (tests/development only) a simple SHA-256 stream cipher + HMAC
+keyed by the master password is used.
 """
 
 from __future__ import annotations
@@ -14,6 +14,8 @@ import hashlib
 import hmac
 import os
 import sys
+
+from .i18n import tr
 
 PBKDF2_ITERATIONS = 300_000
 
@@ -35,7 +37,7 @@ def verifier_for(key: bytes) -> str:
 
 
 class Vault:
-    """Szyfruje/odszyfrowuje teksty kluczem wyprowadzonym z hasła głównego."""
+    """Encrypts/decrypts text with a key derived from the master password."""
 
     def __init__(self, key: bytes, *, use_dpapi: bool | None = None):
         self._key = key
@@ -45,7 +47,7 @@ class Vault:
     def unlock(cls, password: str, salt: bytes, verifier: str) -> "Vault":
         key = derive_key(password, salt)
         if not hmac.compare_digest(verifier_for(key), verifier):
-            raise WrongPassword("Złe hasło główne")
+            raise WrongPassword(tr("Wrong master password"))
         return cls(key)
 
     def encrypt(self, text: str | None) -> bytes | None:
@@ -65,10 +67,10 @@ class Vault:
             return _dpapi_unprotect(body, self._key).decode("utf-8")
         if tag == b"F1":
             return _fallback_decrypt(body, self._key).decode("utf-8")
-        raise ValueError("Nieznany format zaszyfrowanych danych")
+        raise ValueError(tr("Unknown encrypted data format"))
 
 
-# --- fallback (nie-Windows) -------------------------------------------------
+# --- fallback (non-Windows) -------------------------------------------------
 
 
 def _keystream(key: bytes, nonce: bytes, length: int) -> bytes:
@@ -90,7 +92,7 @@ def _fallback_encrypt(data: bytes, key: bytes) -> bytes:
 def _fallback_decrypt(body: bytes, key: bytes) -> bytes:
     nonce, ct, tag = body[:16], body[16:-32], body[-32:]
     if not hmac.compare_digest(tag, hmac.new(key, nonce + ct, hashlib.sha256).digest()):
-        raise WrongPassword("Dane uszkodzone albo złe hasło główne")
+        raise WrongPassword(tr("Damaged data or wrong master password"))
     return bytes(a ^ b for a, b in zip(ct, _keystream(key, nonce, len(ct))))
 
 
@@ -126,8 +128,8 @@ def _dpapi_call(data: bytes, entropy: bytes, protect: bool) -> bytes:
     )
     if not ok:
         if protect:
-            raise OSError("DPAPI: nie udało się zaszyfrować")
-        raise WrongPassword("Nie da się odszyfrować (inne konto Windows albo złe hasło główne)")
+            raise OSError(tr("DPAPI: encryption failed"))
+        raise WrongPassword(tr("Cannot decrypt (different Windows account or wrong master password)"))
     try:
         return ctypes.string_at(out_blob.pbData, out_blob.cbData)
     finally:

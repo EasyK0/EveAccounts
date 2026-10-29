@@ -1,4 +1,4 @@
-"""Pobieranie danych postaci z ESI i zapis do lokalnej bazy."""
+"""Fetches character data from ESI and stores it in the local database."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from typing import Callable
 
 from . import sso
 from .crypto import Vault
+from .i18n import tr
 from .net import EsiClient, EsiError, Transport, urllib_transport
 from .storage import Db, utcnow_iso
 
@@ -50,7 +51,7 @@ def summarize_queue(queue: list[dict], now: datetime) -> dict:
     for entry in queue or []:
         finish = parse_ts(entry.get("finish_date"))
         if finish is None:
-            # bez daty zakończenia = kolejka wstrzymana (albo brak Omegi na skill)
+            # no finish date = queue paused (or the skill needs Omega)
             if entry.get("start_date") is None:
                 paused = True
             remaining.append((entry, None))
@@ -69,8 +70,8 @@ def summarize_queue(queue: list[dict], now: datetime) -> dict:
 
 
 def resolve_asset_roots(assets: list[dict]) -> None:
-    """Dla każdego przedmiotu znajduje stację/strukturę/system, w którym leży
-    (przedmioty w statkach i kontenerach wskazują na ID rodzica)."""
+    """Finds the station/structure/system each item is in
+    (items inside ships and containers point at their parent's ID)."""
     by_id = {a["item_id"]: a for a in assets}
     for asset in assets:
         cur = asset
@@ -104,7 +105,7 @@ class Syncer:
         self._tokens: dict[int, sso.TokenSet] = {}
         self._token_lock = threading.Lock()
 
-    # --- tokeny --------------------------------------------------------------
+    # --- tokens --------------------------------------------------------------
 
     def add_token(self, tokens: sso.TokenSet, account_id: int | None) -> None:
         self.db.upsert_character(tokens.character_id, tokens.character_name,
@@ -119,21 +120,21 @@ class Syncer:
                 return cached.access_token
         rows = self.db.query("SELECT refresh_enc FROM characters WHERE character_id=?", (character_id,))
         if not rows or not rows[0]["refresh_enc"]:
-            raise sso.InvalidToken("Brak tokena")
+            raise sso.InvalidToken(tr("No token"))
         refresh_token = self.vault.decrypt(rows[0]["refresh_enc"])
         try:
             tokens = sso.refresh(refresh_token, self.client_id, self.client_secret, self.transport, self.clock())
         except sso.InvalidToken as exc:
             self.db.mark_token(character_id, False, str(exc))
             raise
-        # CCP może podać nowy refresh token: zapisujemy go od razu
+        # CCP may hand out a new refresh token: store it right away
         if tokens.refresh_token != refresh_token:
             self.db.store_refresh_token(character_id, self.vault.encrypt(tokens.refresh_token))
         with self._token_lock:
             self._tokens[character_id] = tokens
         return tokens.access_token
 
-    # --- pobieranie ----------------------------------------------------------
+    # --- fetching ----------------------------------------------------------
 
     def fetch(self, cid: int, token: str) -> CharData:
         data = CharData()
@@ -180,7 +181,7 @@ class Syncer:
                     "planet_type": planet.get("planet_type", ""),
                     "solar_system_id": planet.get("solar_system_id"),
                     "extractors": len(extractors),
-                    # brak expiry_time przy ekstraktorze = nie ma programu (stoi)
+                    # extractor without expiry_time = no program running (stopped)
                     "expiry": None if (not known or len(known) < len(expiries)) else min(known),
                 })
             data.planets = result
@@ -190,8 +191,8 @@ class Syncer:
             resolve_asset_roots(items)
             data.assets = items
 
-        for label, fn in (("skille", skills), ("kolejka", queue), ("portfel", wallet), ("lokacja", location),
-                          ("industry", jobs), ("PI", planets), ("assety", assets)):
+        for label, fn in ((tr("skills"), skills), (tr("queue"), queue), (tr("wallet"), wallet),
+                          (tr("location"), location), ("industry", jobs), ("PI", planets), (tr("assets"), assets)):
             part(label, fn)
         return data
 
@@ -247,7 +248,7 @@ class Syncer:
             return str(exc)
         try:
             data = self.fetch(cid, token)
-        except OSError as exc:  # brak sieci itp.
+        except OSError as exc:  # no network etc.
             self.db.execute("UPDATE characters SET last_error=? WHERE character_id=?", (str(exc)[:300], cid))
             return str(exc)
         self.store(cid, data)
@@ -275,15 +276,15 @@ class Syncer:
                     progress(done, total, name)
         if not (cancel and cancel.is_set()):
             if progress:
-                progress(done, total, "ceny i nazwy…")
+                progress(done, total, tr("prices and names…"))
             try:
                 self.refresh_prices()
             except (EsiError, OSError) as exc:
-                errors["ceny"] = str(exc)
+                errors[tr("prices")] = str(exc)
             try:
                 self.resolve_names()
             except (EsiError, OSError) as exc:
-                errors["nazwy"] = str(exc)
+                errors[tr("names")] = str(exc)
             self.compute_values()
         return errors
 
@@ -292,10 +293,10 @@ class Syncer:
             return None
         try:
             return self.sync_character(cid)
-        except Exception as exc:  # jedna postać nie może zatrzymać reszty
-            return f"nieoczekiwany błąd: {type(exc).__name__}"
+        except Exception as exc:  # one character must not stop the rest
+            return tr("unexpected error: {name}", name=type(exc).__name__)
 
-    # --- dane wspólne ----------------------------------------------------------
+    # --- shared data ----------------------------------------------------------
 
     def refresh_prices(self) -> None:
         prices = {}
@@ -329,7 +330,7 @@ class Syncer:
                     if exc.status == 404:
                         continue
                     raise
-                # w paczce jest nieznane ID: dzielimy na pół
+                # the chunk holds an unknown ID: split it in half
                 found = self._names_bisect(chunk)
             self.db.save_names({int(r["id"]): (r["name"], r.get("category", "")) for r in found})
 
@@ -340,12 +341,12 @@ class Syncer:
             sid = row["sid"]
             if sid in known:
                 continue
-            name = f"Struktura {sid}"
+            name = tr("Structure {id}", id=sid)
             try:
                 info = self.esi.get(f"/universe/structures/{sid}", token=self.access_token(row["cid"])) or {}
                 name = info.get("name") or name
             except (EsiError, sso.SsoError):
-                name = f"Struktura {sid} (brak dostępu)"
+                name = tr("Structure {id} (no access)", id=sid)
             self.db.save_names({sid: (name, "structure")})
 
     def _names_bisect(self, ids: list[int]) -> list[dict]:

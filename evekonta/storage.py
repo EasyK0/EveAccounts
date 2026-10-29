@@ -1,4 +1,4 @@
-"""Lokalna baza SQLite (%LOCALAPPDATA%\\EveKonta\\evekonta.sqlite3)."""
+"""Local SQLite database (%LOCALAPPDATA%\\EveKonta\\evekonta.sqlite3)."""
 
 from __future__ import annotations
 
@@ -129,7 +129,7 @@ class Db:
             self.conn.commit()
             return cur
 
-    # --- ustawienia ----------------------------------------------------------
+    # --- settings ----------------------------------------------------------
 
     def get_setting(self, key: str, default: str = "") -> str:
         rows = self.query("SELECT value FROM settings WHERE key=?", (key,))
@@ -139,7 +139,7 @@ class Db:
         self.execute("INSERT INTO settings(key, value) VALUES(?, ?) "
                      "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
 
-    # --- konta ---------------------------------------------------------------
+    # --- accounts ---------------------------------------------------------------
 
     def add_account(self, *, name="", login="", email="", password_enc=None, email_password_enc=None,
                     omega_until="", notes="") -> int:
@@ -182,7 +182,7 @@ class Db:
         sql += " ORDER BY lower(name), lower(login)"
         return self.query(sql, params)
 
-    # --- postacie ------------------------------------------------------------
+    # --- characters ------------------------------------------------------------
 
     def upsert_character(self, character_id: int, name: str, refresh_enc: bytes, scopes: str,
                          account_id: int | None) -> None:
@@ -218,7 +218,7 @@ class Db:
                ORDER BY lower(COALESCE(a.name, a.login, '')), lower(c.name)"""
         )
 
-    # --- nazwy i ceny --------------------------------------------------------
+    # --- names and prices --------------------------------------------------------
 
     def save_names(self, entries: dict[int, tuple[str, str]]) -> None:
         with self.lock:

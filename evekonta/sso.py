@@ -1,7 +1,7 @@
-"""Logowanie postaci przez EVE SSO (OAuth2 + PKCE).
+"""Character login through EVE SSO (OAuth2 + PKCE).
 
-Każdą postać logujesz raz. Aplikacja zapisuje (zaszyfrowany) refresh token
-i potem sama odnawia dostęp, więc hasło do gry nie jest do tego potrzebne.
+Each character logs in once. The app stores the (encrypted) refresh token
+and renews access by itself afterwards, so the game password is not needed.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ import time
 import urllib.parse
 from dataclasses import dataclass
 
+from .i18n import tr
 from .net import USER_AGENT, Transport, urllib_transport
 
 AUTH_URL = "https://login.eveonline.com/v2/oauth/authorize"
@@ -38,7 +39,7 @@ class SsoError(Exception):
 
 
 class InvalidToken(SsoError):
-    """Refresh token odrzucony: postać trzeba zalogować ponownie."""
+    """Refresh token rejected: the character has to log in again."""
 
 
 @dataclass
@@ -78,13 +79,13 @@ def build_auth_url(client_id: str, port: int, state: str, challenge: str,
 @dataclass
 class AppCheck:
     ok: bool
-    error: str = ""            # kod błędu z SSO (invalid_client, invalid_scope, ...)
+    error: str = ""            # SSO error code (invalid_client, invalid_scope, ...)
     description: str = ""
-    rejected: list[str] | None = None  # uprawnienia odrzucone przez SSO
+    rejected: list[str] | None = None  # scopes rejected by SSO
 
 
 def _probe(client_id: str, port: int, scopes: list[str], transport: Transport) -> tuple[str, str]:
-    """Pyta SSO o stronę logowania. Zwraca ("", "") gdy SSO akceptuje żądanie."""
+    """Asks SSO for the login page. Returns ("", "") when SSO accepts the request."""
     _, challenge = make_pkce()
     url = build_auth_url(client_id, port, "probe", challenge, scopes)
     resp = transport("GET", url, {"User-Agent": USER_AGENT, "Accept": "text/html,application/json"}, None)
@@ -102,8 +103,8 @@ def _probe(client_id: str, port: int, scopes: list[str], transport: Transport) -
 
 
 def check_app(client_id: str, port: int, transport: Transport = urllib_transport) -> AppCheck:
-    """Sprawdza konfigurację aplikacji na developers.eveonline.com bez logowania:
-    poprawność Client ID, callback URL i które uprawnienia są włączone."""
+    """Checks the app set up on developers.eveonline.com without logging in:
+    whether the Client ID and callback URL are right and which scopes are enabled."""
     error, desc = _probe(client_id, port, SCOPES, transport)
     if not error:
         return AppCheck(True, rejected=[])
@@ -121,37 +122,37 @@ def check_app(client_id: str, port: int, transport: Transport = urllib_transport
 
 def explain_check(result: AppCheck, port: int) -> str:
     if result.ok:
-        return "Aplikacja EVE jest ustawiona poprawnie. Możesz dodawać postacie."
+        return tr("The EVE app is set up correctly. You can add characters.")
     if result.error == "invalid_scope":
         lines = "\n".join(f"  • {s}" for s in result.rejected or [])
-        return ("EVE odrzuca te uprawnienia (nie są zaznaczone w aplikacji z TYM Client ID):\n"
-                f"{lines}\n\nNa developers.eveonline.com otwórz aplikację o dokładnie takim Client ID jak w "
-                "Ustawieniach, zaznacz je i zapisz.")
+        return tr("EVE rejects these scopes (they are not ticked in the app with THIS Client ID):\n{lines}\n\n"
+                  "On developers.eveonline.com open the app with exactly the Client ID from Settings, "
+                  "tick them and save.", lines=lines)
     if result.error in ("invalid_client", "unauthorized_client"):
-        return ("EVE nie zna tego Client ID. Skopiuj go jeszcze raz ze strony aplikacji "
-                "(bez spacji na początku i końcu) i zapisz ustawienia.")
+        return tr("EVE does not know this Client ID. Copy it again from the app page "
+                  "(no spaces at the start or end) and save the settings.")
     if "redirect" in (result.error + result.description).lower():
-        return (f"Callback URL w aplikacji EVE musi być dokładnie: {redirect_uri(port)}\n"
-                f"(EVE zgłasza: {result.description or result.error})")
-    return f"EVE zwraca błąd: {result.error} {result.description}".strip()
+        return tr("The Callback URL in the EVE app must be exactly: {url}\n(EVE says: {detail})",
+                  url=redirect_uri(port), detail=result.description or result.error)
+    return tr("EVE returns an error: {error}", error=f"{result.error} {result.description}".strip())
 
 
 def decode_jwt(token: str) -> dict:
-    """Odczyt danych z tokena (bez weryfikacji podpisu: token przychodzi
-    bezpośrednio z serwera CCP po HTTPS)."""
+    """Reads the token payload (no signature check: the token comes
+    straight from CCP's server over HTTPS)."""
     try:
         payload = token.split(".")[1]
         payload += "=" * (-len(payload) % 4)
         return json.loads(base64.urlsafe_b64decode(payload))
     except (IndexError, ValueError) as exc:
-        raise SsoError("Nieprawidłowy token z SSO") from exc
+        raise SsoError(tr("Invalid token from SSO")) from exc
 
 
 def _token_set(data: dict, now: float) -> TokenSet:
     claims = decode_jwt(data["access_token"])
     sub = str(claims.get("sub", ""))
     if not sub.startswith("CHARACTER:EVE:"):
-        raise SsoError("Token nie należy do postaci")
+        raise SsoError(tr("The token does not belong to a character"))
     scp = claims.get("scp", [])
     if isinstance(scp, str):
         scp = [scp]
@@ -183,10 +184,10 @@ def _post_token(form: dict, client_id: str, client_secret: str | None, transport
         except ValueError:
             err = ""
         if err in ("invalid_grant", "invalid_token"):
-            raise InvalidToken("Token unieważniony, zaloguj postać ponownie")
-        raise SsoError(f"SSO odrzuciło żądanie ({resp.status} {err})")
+            raise InvalidToken(tr("Token revoked, log the character in again"))
+        raise SsoError(tr("SSO rejected the request ({status} {error})", status=resp.status, error=err))
     if resp.status >= 400:
-        raise SsoError(f"SSO błąd {resp.status}")
+        raise SsoError(tr("SSO error {status}", status=resp.status))
     return resp.json()
 
 
@@ -208,11 +209,11 @@ def refresh(refresh_token: str, client_id: str, client_secret: str | None = None
 
 _DONE_PAGE = """<!doctype html><meta charset="utf-8"><title>EveKonta</title>
 <body style="font-family:sans-serif;background:#111;color:#eee;padding:40px">
-<h2>{msg}</h2><p>Możesz zamknąć tę kartę i wrócić do EveKonta.</p></body>"""
+<h2>{msg}</h2><p>{hint}</p></body>"""
 
 
 class CallbackServer:
-    """Jednorazowy serwer na localhost, który odbiera kod z EVE SSO."""
+    """One-shot localhost server that receives the code from EVE SSO."""
 
     def __init__(self, port: int, state: str):
         self.state = state
@@ -230,15 +231,16 @@ class CallbackServer:
                     return
                 qs = urllib.parse.parse_qs(parsed.query)
                 if qs.get("state", [""])[0] != outer.state:
-                    outer.error = "Zły parametr state (stare okno logowania?)"
-                    msg = "Błąd logowania"
+                    outer.error = tr("Wrong state parameter (old login window?)")
+                    msg = tr("Login failed")
                 elif "code" not in qs:
-                    outer.error = qs.get("error", ["Brak kodu"])[0]
-                    msg = "Logowanie anulowane"
+                    outer.error = qs.get("error", [tr("No code")])[0]
+                    msg = tr("Login cancelled")
                 else:
                     outer.code = qs["code"][0]
-                    msg = "Postać dodana"
-                body = _DONE_PAGE.format(msg=msg).encode("utf-8")
+                    msg = tr("Character added")
+                hint = tr("You can close this tab and go back to EveKonta.")
+                body = _DONE_PAGE.format(msg=msg, hint=hint).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
@@ -265,7 +267,7 @@ class CallbackServer:
         finished = self._done.wait(timeout)
         self.close()
         if not finished:
-            raise SsoError("Minął czas na zalogowanie")
+            raise SsoError(tr("Login timed out"))
         if self.error:
             raise SsoError(self.error)
         return self.code
