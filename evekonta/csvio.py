@@ -1,4 +1,4 @@
-"""Import/eksport listy kont z pliku CSV (np. z Excela)."""
+"""Account list import/export as CSV (e.g. from Excel)."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import io
 from pathlib import Path
 
 from .crypto import Vault
+from .i18n import get_language, tr
 from .storage import Db
 
 COLUMNS = {
@@ -18,6 +19,14 @@ COLUMNS = {
                        "haslo do maila", "hasło do maila"),
     "omega_until": ("omega", "omega_do", "omega do", "omega_until"),
     "notes": ("notatki", "notes", "uwagi"),
+}
+
+# export header per language (import accepts both)
+EXPORT_HEADERS = {
+    "en": {"name": "name", "login": "login", "password": "password", "email": "email",
+           "email_password": "email_password", "omega": "omega", "notes": "notes", "characters": "characters"},
+    "pl": {"name": "nazwa", "login": "login", "password": "haslo", "email": "email",
+           "email_password": "haslo_email", "omega": "omega", "notes": "notatki", "characters": "postacie"},
 }
 
 
@@ -47,7 +56,7 @@ def _map_header(header: list[str]) -> dict[str, int]:
 
 
 def import_accounts(db: Db, vault: Vault, path: Path) -> tuple[int, int]:
-    """Zwraca (dodane, pominięte). Konto z istniejącym loginem jest pomijane."""
+    """Returns (added, skipped). An account whose login already exists is skipped."""
     text = _read_text(Path(path))
     try:
         dialect = csv.Sniffer().sniff(text[:4096], delimiters=";,\t")
@@ -58,7 +67,7 @@ def import_accounts(db: Db, vault: Vault, path: Path) -> tuple[int, int]:
         return 0, 0
     mapping = _map_header(rows[0])
     if "login" not in mapping and "email" not in mapping:
-        raise ValueError("Plik musi mieć nagłówek z kolumną 'login' albo 'email'")
+        raise ValueError(tr("The file needs a header row with a 'login' or 'email' column"))
     existing = {r["login"].lower() for r in db.query("SELECT login FROM accounts") if r["login"]}
     added = skipped = 0
 
@@ -89,10 +98,11 @@ def export_accounts(db: Db, vault: Vault, path: Path, include_passwords: bool) -
     rows = db.list_accounts()
     with open(path, "w", newline="", encoding="utf-8-sig") as fh:
         writer = csv.writer(fh, delimiter=";")
-        header = ["nazwa", "login", "email", "omega", "notatki", "postacie"]
+        h = EXPORT_HEADERS.get(get_language(), EXPORT_HEADERS["en"])
+        header = [h["name"], h["login"], h["email"], h["omega"], h["notes"], h["characters"]]
         if include_passwords:
-            header[2:2] = ["haslo"]
-            header.insert(4, "haslo_email")
+            header[2:2] = [h["password"]]
+            header.insert(4, h["email_password"])
         writer.writerow(header)
         for r in rows:
             line = [r["name"], r["login"], r["email"], r["omega_until"], r["notes"], r["characters"]]
@@ -103,10 +113,10 @@ def export_accounts(db: Db, vault: Vault, path: Path, include_passwords: bool) -
     return len(rows)
 
 
-# --- wklejanie listy kont (dowolny format, jedno konto w linii) --------------
+# --- pasting an account list (any format, one account per line) -------------
 
 _SEPARATORS = ["\t", ";", "|", ":", ","]
-_HEADER_WORDS = {"login", "haslo", "hasło", "password", "email", "e-mail", "mail", "nazwa"}
+_HEADER_WORDS = {"login", "haslo", "hasło", "password", "email", "e-mail", "mail", "nazwa", "name", "username"}
 
 
 def _is_email(text: str) -> bool:
@@ -120,14 +130,14 @@ def _pick_separator(lines: list[str]) -> str | None:
         count = sum(1 for line in lines if sep in line)
         if count > best_count:
             best, best_count = sep, count
-    # separator musi występować w większości linii, inaczej dzielimy po spacjach
+    # the separator must be in most lines, otherwise split on spaces
     return best if best and best_count >= max(1, len(lines) // 2) else None
 
 
 def parse_pasted(text: str, with_passwords: bool = True) -> list[dict]:
-    """Rozpoznaje listy typu `login:haslo`, `login;haslo;mail`, `mail haslo`,
-    `login | haslo | mail | notatka`. Pole z @ to e-mail, pierwsze inne to
-    login, kolejne to hasło, reszta trafia do notatek."""
+    """Recognizes lists like `login:password`, `login;password;mail`, `mail password`,
+    `login | password | mail | note`. The field with @ is the e-mail, the first
+    other one is the login, the next is the password, the rest goes to notes."""
     lines = [ln.strip() for ln in text.splitlines()]
     lines = [ln for ln in lines if ln and not ln.startswith("#")]
     if not lines:
@@ -142,7 +152,7 @@ def parse_pasted(text: str, with_passwords: bool = True) -> list[dict]:
         if not parts:
             continue
         if index == 0 and sum(1 for p in parts if p.lower() in _HEADER_WORDS) >= 2:
-            header = _map_header(parts)  # nagłówek mówi, która kolumna jest czym
+            header = _map_header(parts)  # the header says which column is which
             continue
         if header:
             def col(field):

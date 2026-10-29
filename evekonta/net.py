@@ -1,4 +1,4 @@
-"""Klient HTTP dla ESI i EVE SSO (tylko biblioteka standardowa)."""
+"""HTTP client for ESI and EVE SSO (standard library only)."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from . import __version__
 
 ESI_BASE = "https://esi.evetech.net"
 ESI_COMPAT_DATE = "2025-09-30"
-USER_AGENT = f"EveKonta/{__version__} (prywatne narzedzie multibox)"
+USER_AGENT = f"EveKonta/{__version__} (private multibox tool)"
 
 
 @dataclass
@@ -48,7 +48,7 @@ class EsiError(Exception):
 
 
 class EsiClient:
-    """Wywołania ESI z ponawianiem i pilnowaniem limitu błędów."""
+    """ESI calls with retries and error-limit tracking."""
 
     def __init__(self, transport: Transport = urllib_transport, *, sleep=time.sleep, base: str = ESI_BASE):
         self._transport = transport
