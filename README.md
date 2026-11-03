@@ -22,6 +22,7 @@ The app is in English by default. To switch to Polish, open **Settings**, pick *
 - **The master password cannot be recovered.** If you forget it, stored passwords are lost and characters must be logged in again.
 - A copy of the database will not work on another PC because DPAPI is tied to the Windows account. Back up passwords with a CSV export and keep it somewhere safe (KeePass, an encrypted USB drive).
 - A CSV with passwords is plain text. Delete it after importing.
+- Copied passwords are kept out of the Windows clipboard history (Win+V) and cloud clipboard sync, and cleared after 30 s.
 
 ## Setup
 

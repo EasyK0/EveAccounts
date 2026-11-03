@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
-from . import __version__, csvio, i18n, reports, sso
+from . import __version__, clip, csvio, i18n, reports, sso
 from .crypto import Vault, WrongPassword, derive_key, new_salt, verifier_for
 from .i18n import tr
 from .storage import Db, default_data_dir
@@ -456,9 +456,10 @@ class App(tk.Tk):
         if not text:
             self.set_status(tr("Empty field – nothing copied."))
             return
-        self.clipboard_clear()
-        self.clipboard_append(text)
-        self.update()
+        if not (sensitive and clip.copy_private(text)):
+            self.clipboard_clear()
+            self.clipboard_append(text)
+            self.update()
         if sensitive:
             self._clipboard_token += 1
             token = self._clipboard_token
