@@ -336,3 +336,10 @@ def test_check_app_finds_rejected_scope():
     assert r.error == "invalid_client" and "Client ID" in sso.explain_check(r, 8765)
     enabled.add("esi-assets.read_assets.v1")
     assert sso.check_app("good", 8765, transport).ok
+
+
+def test_private_clipboard_falls_back_outside_windows(monkeypatch):
+    from evekonta import clip
+
+    monkeypatch.setattr(clip.sys, "platform", "linux")
+    assert clip.copy_private("secret") is False
