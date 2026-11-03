@@ -1,49 +1,88 @@
-# EveAccounts (EveKonta)
+# EveAccounts
 
-A private Windows app for managing many EVE Online accounts. Everything stays on your own PC; nothing goes to Discord or the cloud.
+[![CI](https://github.com/EasyK0/EveAccounts/actions/workflows/ci.yml/badge.svg)](https://github.com/EasyK0/EveAccounts/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/EasyK0/EveAccounts)](https://github.com/EasyK0/EveAccounts/releases)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-## What it does
+A local, encrypted desktop app for people who run many EVE Online accounts. It keeps account credentials in an encrypted vault and puts every character's skills, wallet, assets, industry jobs and planetary colonies in one sortable table. It also lists what needs your attention today.
 
-- **Accounts (Konta)**: login, password, e-mail, e-mail password, Omega date and notes per account. Search by name, login, e-mail, character or notes. Buttons copy the login or password; the password is cleared from the clipboard after 30 s. CSV import and export.
-- **Characters (Postacie)**: SP, skill queue end, current training, wallet, asset value, industry jobs, PI and current system for every character in one sortable table.
-- **Alerts (Uwagi)**: empty or paused skill queues, queues ending within 24 h, finished jobs, idle or expiring PI extractors, expiring Omega (from the date stored on the account) and characters that need to log in again.
-- **Wealth (Majątek)**: total ISK and assets across all characters, plus a "where is my Sabre" search that shows the item, character, account and station or structure.
+- **Local only.** All data stays in a SQLite file on your PC. There is no server, no cloud and no telemetry.
+- **Official API only.** It talks to CCP's ESI and SSO, and never touches the game client.
+- **Standard library only.** Pure Python 3.11+ with Tkinter: nothing to `pip install` to run it.
 
-The app only reads data from the official API (ESI) and never touches the game client.
+![Alerts view](docs/alerts.png)
 
-## Language
+## Features
 
-The app is in English by default. To switch to Polish, open **Settings**, pick *Polski* under **Language / Język** and click **Save settings**; the window switches right away and remembers the choice. CSV import accepts both English and Polish column names (`name`/`nazwa`, `password`/`haslo`, `notes`/`notatki`, ...), and exports use the column names of the chosen language.
+| Tab | What it shows |
+|---|---|
+| **Alerts** | Empty or paused skill queues, queues ending within 24 h, finished industry jobs, stopped or expiring PI extractors, Omega ending soon, and characters whose login has expired |
+| **Characters** | SP, queue end, current skill, wallet, asset value, jobs, PI and location for every character, with search |
+| **Wealth** | Total ISK and asset value across all characters, plus a "where is my Sabre?" search that shows the item, character, account and station |
+| **Accounts** | Login, password, e-mail, e-mail password, Omega date and notes. Searchable, with one-click copy. CSV import/export, or paste a list in almost any format |
+| **Settings** | EVE application, refresh interval, parallel downloads, language (English / Polish) |
 
-## Security
+![Characters view](docs/characters.png)
+<sub>Screenshots use generated demo data.</sub>
 
-- Database: `%LOCALAPPDATA%\EveKonta\evekonta.sqlite3`.
-- Passwords and character tokens are encrypted with Windows DPAPI plus the app's **master password**. Reading them needs your Windows account and the master password.
-- **The master password cannot be recovered.** If you forget it, stored passwords are lost and characters must be logged in again.
-- A copy of the database will not work on another PC because DPAPI is tied to the Windows account. Back up passwords with a CSV export and keep it somewhere safe (KeePass, an encrypted USB drive).
-- A CSV with passwords is plain text. Delete it after importing.
-- Copied passwords are kept out of the Windows clipboard history (Win+V) and cloud clipboard sync, and cleared after 30 s.
+## Security model
 
-## Setup
+Account passwords and character refresh tokens are the sensitive data here, so they're handled carefully:
 
-Requires Python 3.11+ from python.org. No extra packages.
+- **Two keys are needed to decrypt.** Secrets are encrypted with Windows **DPAPI**, using a key derived from your **master password** (PBKDF2-HMAC-SHA256, 300,000 iterations, random salt) as extra entropy. Reading them takes both your Windows login *and* the master password. A copied database file is useless on another PC or account.
+- **No password is stored.** Only a salted verifier, compared in constant time.
+- **The clipboard is cleaned up.** Copied passwords are kept out of the Windows clipboard history (Win+V) and cloud clipboard sync, and cleared after 30 seconds.
+- **SSO follows best practice.** OAuth 2.0 Authorization Code with **PKCE** and a random `state`. The one-shot callback server binds to `127.0.0.1` only. You can use the app without a client secret.
+- **Least privilege.** It only requests read scopes, plus `esi-planets.manage_planets.v1`, which ESI requires to *read* colony details.
+- **The repo stays clean.** A CI job fails if a database, CSV export or account list is ever committed.
 
-1. Run `start.bat` (or `start-z-konsola.bat` to see errors in a console).
-2. Set the master password.
-3. Create an EVE application once at https://developers.eveonline.com/applications:
-   - Connection Type: *Authentication & API Access*, with the scopes listed in the Settings tab (there is a copy button),
-   - Callback URL: `http://localhost:8765/callback`,
-   - paste the **Client ID** into the Settings tab and save.
-4. Import accounts from CSV (see `konta-przyklad.csv`), paste a list with **Paste accounts…**, or add them by hand.
-5. Add characters: select an account, click **Add character to account…**, then open the login page and pick the character. One login adds one character. When switching accounts, use the incognito link button so EVE SSO doesn't reuse the previous account. Each character logs in once; after that the app refreshes access on its own.
+> The master password cannot be recovered. Back up your accounts with **Export CSV** and keep the file somewhere safe, such as a password manager or an encrypted drive. Exported CSVs with passwords are plain text.
 
-## Refreshing
+## Getting started
 
-The refresh button fetches data for all characters, and the app refreshes automatically every 30 minutes while open. With 300+ characters the first fetch takes a few minutes. Parallel fetches are set in Settings (default 6; ESI has rate limits).
+Requires Windows 10/11 and [Python 3.11+](https://www.python.org/downloads/).
 
-## Tests
+1. Download the [latest release](https://github.com/EasyK0/EveAccounts/releases) and unpack it.
+2. Run `start.bat`. Use `start-z-konsola.bat` instead to keep a console window open for error output.
+3. Choose a master password.
+4. Create an application at [developers.eveonline.com](https://developers.eveonline.com/applications):
+   - **Connection type:** Authentication & API Access, with the scopes listed in the Settings tab (there is a copy button),
+   - **Callback URL:** `http://localhost:8765/callback`,
+   - paste the **Client ID** into Settings and save.
+5. Add accounts by importing a CSV (see [`konta-przyklad.csv`](konta-przyklad.csv)), pasting a list, or typing them in by hand.
+6. Add characters: select an account, click **Add character to account…** and log in. Use the incognito link to switch between accounts, so SSO doesn't reuse the previous login. After that, tokens refresh automatically.
+
+Data is fetched on demand and every 30 minutes while the app is open. Requests run in parallel (6 by default) and respect ESI's error-limit headers, so the first fetch for 300+ characters takes a few minutes.
+
+## Architecture
 
 ```
-py -3 -m pip install pytest
-py -3 -m pytest
+evekonta/
+├── gui.py       Tkinter UI (tabs, dialogs, background refresh queue)
+├── sync.py      Per-character fetch: skills, queue, wallet, location, jobs, PI, assets; thread pool
+├── net.py       ESI client: retries, Retry-After, error-limit back-off, paging
+├── sso.py       EVE SSO: PKCE, token exchange/refresh, localhost callback server
+├── crypto.py    Vault: DPAPI + PBKDF2 master key
+├── storage.py   SQLite schema and queries (WAL mode, thread-safe)
+├── reports.py   Alerts, totals, "where is" search
+├── csvio.py     CSV and free-form account list import/export
+├── clip.py      Win32 clipboard writes excluded from history and cloud sync
+└── i18n.py      English/Polish strings
 ```
+
+The network layer takes a pluggable transport. The tests use it to run the whole flow (SSO, token refresh, ESI paging, retries, sync and alerts) against fake responses, without touching the network.
+
+## Development
+
+```sh
+pip install -e .[dev]
+pytest
+ruff check .
+```
+
+CI runs the tests on Windows with Python 3.11 and 3.13, along with the lint and private-file checks.
+
+## License
+
+[MIT](LICENSE). EVE Online and the EVE logo are trademarks of CCP hf. This project is not affiliated with or endorsed by CCP.
