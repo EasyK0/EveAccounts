@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import threading
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Callable
 
 from . import sso
 from .crypto import Vault
@@ -293,7 +293,7 @@ class Syncer:
             return None
         try:
             return self.sync_character(cid)
-        except Exception as exc:  # one character must not stop the rest
+        except Exception as exc:  # noqa: BLE001 - one character must not stop the rest
             return tr("unexpected error: {name}", name=type(exc).__name__)
 
     # --- shared data ----------------------------------------------------------

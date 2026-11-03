@@ -155,7 +155,7 @@ def parse_pasted(text: str, with_passwords: bool = True) -> list[dict]:
             header = _map_header(parts)  # the header says which column is which
             continue
         if header:
-            def col(field):
+            def col(field, header=header, parts=parts):
                 i = header.get(field)
                 return parts[i] if i is not None and i < len(parts) else ""
             row = {"login": col("login") or col("email"), "password": col("password"),

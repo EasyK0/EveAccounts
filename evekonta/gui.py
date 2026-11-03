@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
-from . import __version__, csvio, i18n, reports, sso
+from . import __version__, clip, csvio, i18n, reports, sso
 from .crypto import Vault, WrongPassword, derive_key, new_salt, verifier_for
 from .i18n import tr
 from .storage import Db, default_data_dir
@@ -150,7 +150,7 @@ def ask_master_password(root: tk.Tk, db: Db) -> Vault | None:
 
 
 class AccountDialog(tk.Toplevel):
-    def __init__(self, app: "App", account_id: int | None):
+    def __init__(self, app: App, account_id: int | None):
         super().__init__(app)
         self.app = app
         self.account_id = account_id
@@ -204,11 +204,15 @@ class AccountDialog(tk.Toplevel):
             messagebox.showwarning(tr("Account"), tr("Omega date as YYYY-MM-DD (e.g. 2026-11-30)."), parent=self)
             return
         v = self.app.vault
-        fields = dict(
-            name=self.name.get().strip(), login=self.login.get().strip(), email=self.email.get().strip(),
-            password_enc=v.encrypt(self.password.get()), email_password_enc=v.encrypt(self.email_password.get()),
-            omega_until=omega, notes=self.notes.get("1.0", "end").strip(),
-        )
+        fields = {
+            "name": self.name.get().strip(),
+            "login": self.login.get().strip(),
+            "email": self.email.get().strip(),
+            "password_enc": v.encrypt(self.password.get()),
+            "email_password_enc": v.encrypt(self.email_password.get()),
+            "omega_until": omega,
+            "notes": self.notes.get("1.0", "end").strip(),
+        }
         if self.account_id is None:
             self.app.db.add_account(**fields)
         else:
@@ -221,7 +225,7 @@ class AccountDialog(tk.Toplevel):
 
 
 class PasteAccountsDialog(tk.Toplevel):
-    def __init__(self, app: "App"):
+    def __init__(self, app: App):
         super().__init__(app)
         self.app = app
         self.title(tr("Paste accounts"))
@@ -295,7 +299,7 @@ class PasteAccountsDialog(tk.Toplevel):
 
 
 class AddCharacterDialog(tk.Toplevel):
-    def __init__(self, app: "App", account_id: int | None):
+    def __init__(self, app: App, account_id: int | None):
         super().__init__(app)
         self.app = app
         self.account_id = account_id
@@ -456,9 +460,10 @@ class App(tk.Tk):
         if not text:
             self.set_status(tr("Empty field – nothing copied."))
             return
-        self.clipboard_clear()
-        self.clipboard_append(text)
-        self.update()
+        if not (sensitive and clip.copy_private(text)):
+            self.clipboard_clear()
+            self.clipboard_append(text)
+            self.update()
         if sensitive:
             self._clipboard_token += 1
             token = self._clipboard_token

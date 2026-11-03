@@ -4,6 +4,9 @@ All notable changes to EveKonta. Adding a new version at the top publishes a Git
 
 ## [Unreleased]
 
+- Copied passwords are kept out of the Windows clipboard history and cloud clipboard sync.
+- `pyproject.toml` (installable with `pip install -e .[dev]`), ruff lint in CI, code cleanups.
+- MIT license, screenshots and a rewritten README with the security model and architecture.
 - CI: tests run on Windows with Python 3.11 and 3.13, and a check fails the build if an account list, export or database file is ever committed.
 
 ## [1.1.0] - 2026-10-28

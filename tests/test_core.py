@@ -282,7 +282,7 @@ def test_auth_url_and_callback_server():
     import threading
     import urllib.request
 
-    verifier, challenge = sso.make_pkce()
+    _verifier, challenge = sso.make_pkce()
     url = sso.build_auth_url("cid", 8799, "st4te", challenge)
     q = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
     assert q["redirect_uri"] == ["http://localhost:8799/callback"] and q["code_challenge_method"] == ["S256"]
@@ -325,8 +325,8 @@ def test_check_app_finds_rejected_scope():
             return Response(400, {}, b'{"error":"invalid_client","error_description":"Unknown client"}')
         bad = [s for s in q["scope"][0].split() if s not in enabled]
         if bad:
-            return Response(400, {}, json.dumps({"error": "invalid_scope",
-                                                 "error_description": f"The requested '{bad[0]}' scope is not valid."}).encode())
+            body = {"error": "invalid_scope", "error_description": f"The requested '{bad[0]}' scope is not valid."}
+            return Response(400, {}, json.dumps(body).encode())
         return Response(200, {}, b"<html>login</html>")
 
     r = sso.check_app("good", 8765, transport)
@@ -336,3 +336,10 @@ def test_check_app_finds_rejected_scope():
     assert r.error == "invalid_client" and "Client ID" in sso.explain_check(r, 8765)
     enabled.add("esi-assets.read_assets.v1")
     assert sso.check_app("good", 8765, transport).ok
+
+
+def test_private_clipboard_falls_back_outside_windows(monkeypatch):
+    from evekonta import clip
+
+    monkeypatch.setattr(clip.sys, "platform", "linux")
+    assert clip.copy_private("secret") is False
