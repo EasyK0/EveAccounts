@@ -44,7 +44,7 @@ class Vault:
         self._dpapi = (sys.platform == "win32") if use_dpapi is None else use_dpapi
 
     @classmethod
-    def unlock(cls, password: str, salt: bytes, verifier: str) -> "Vault":
+    def unlock(cls, password: str, salt: bytes, verifier: str) -> Vault:
         key = derive_key(password, salt)
         if not hmac.compare_digest(verifier_for(key), verifier):
             raise WrongPassword(tr("Wrong master password"))
@@ -84,7 +84,7 @@ def _keystream(key: bytes, nonce: bytes, length: int) -> bytes:
 
 def _fallback_encrypt(data: bytes, key: bytes) -> bytes:
     nonce = os.urandom(16)
-    ct = bytes(a ^ b for a, b in zip(data, _keystream(key, nonce, len(data))))
+    ct = bytes(a ^ b for a, b in zip(data, _keystream(key, nonce, len(data)), strict=True))
     tag = hmac.new(key, nonce + ct, hashlib.sha256).digest()
     return nonce + ct + tag
 
@@ -93,7 +93,7 @@ def _fallback_decrypt(body: bytes, key: bytes) -> bytes:
     nonce, ct, tag = body[:16], body[16:-32], body[-32:]
     if not hmac.compare_digest(tag, hmac.new(key, nonce + ct, hashlib.sha256).digest()):
         raise WrongPassword(tr("Damaged data or wrong master password"))
-    return bytes(a ^ b for a, b in zip(ct, _keystream(key, nonce, len(ct))))
+    return bytes(a ^ b for a, b in zip(ct, _keystream(key, nonce, len(ct)), strict=True))
 
 
 # --- DPAPI (Windows) --------------------------------------------------------

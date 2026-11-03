@@ -223,7 +223,7 @@ class CallbackServer:
         outer = self
 
         class Handler(http.server.BaseHTTPRequestHandler):
-            def do_GET(self):  # noqa: N802
+            def do_GET(self):
                 parsed = urllib.parse.urlparse(self.path)
                 if parsed.path != "/callback":
                     self.send_response(404)
