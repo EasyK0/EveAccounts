@@ -20,6 +20,7 @@ from .storage import Db, default_data_dir
 from .sync import Syncer
 
 CLIPBOARD_CLEAR_SECONDS = 30
+IMPORT_SKIPPED_SHOWN = 20  # skipped CSV rows listed in the import summary
 DEV_PORTAL = "https://developers.eveonline.com/applications"
 
 
@@ -848,19 +849,25 @@ class App(tk.Tk):
             "A CSV file (e.g. saved from Excel) with a header in the first row.\n"
             "Recognized columns: name, login, password, email, email_password, omega, notes "
             "(Polish names work too).\n"
-            "Accounts whose login is already in the database are skipped.\n\n"
+            "Rows whose login is already in the database or earlier in the file, and rows with "
+            "neither login nor e-mail, are skipped; you get the line numbers.\n\n"
             "Delete the CSV file after importing – the passwords in it are plain text."), parent=self)
         path = filedialog.askopenfilename(parent=self, filetypes=[("CSV", "*.csv"), (tr("All files"), "*.*")])
         if not path:
             return
         try:
-            added, skipped = csvio.import_accounts(self.db, self.vault, Path(path))
+            report = csvio.import_accounts_report(self.db, self.vault, Path(path))
         except (ValueError, OSError) as exc:
             messagebox.showerror(tr("Import CSV"), str(exc), parent=self)
             return
         self.refresh_views()
-        messagebox.showinfo(tr("Import CSV"), tr("Added: {added}\nSkipped (duplicates): {skipped}", added=added,
-                                                    skipped=skipped), parent=self)
+        text = tr("Added: {added}\nSkipped: {skipped}", added=report.added, skipped=len(report.skipped))
+        shown = report.skipped[:IMPORT_SKIPPED_SHOWN]
+        if shown:
+            text += "\n\n" + "\n".join(tr("Line {line}: {reason}", line=s.line, reason=s.reason) for s in shown)
+            if len(report.skipped) > len(shown):
+                text += "\n" + tr("…and {n} more", n=len(report.skipped) - len(shown))
+        messagebox.showinfo(tr("Import CSV"), text, parent=self)
 
     def export_csv(self):
         with_pw = messagebox.askyesnocancel(

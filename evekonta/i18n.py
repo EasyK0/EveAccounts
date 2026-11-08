@@ -236,15 +236,19 @@ PL: dict[str, str] = {
     "Import CSV": "Import CSV",
     "A CSV file (e.g. saved from Excel) with a header in the first row.\n"
     "Recognized columns: name, login, password, email, email_password, omega, notes (Polish names work too).\n"
-    "Accounts whose login is already in the database are skipped.\n\n"
+    "Rows whose login is already in the database or earlier in the file, and rows with "
+    "neither login nor e-mail, are skipped; you get the line numbers.\n\n"
     "Delete the CSV file after importing – the passwords in it are plain text.":
         "Plik CSV (np. zapisany z Excela) z nagłówkiem w pierwszym wierszu.\n"
         "Rozpoznawane kolumny: nazwa, login, haslo, email, haslo_email, omega, notatki "
         "(angielskie nazwy też działają).\n"
-        "Konta z loginem, który już jest w bazie, zostaną pominięte.\n\n"
+        "Wiersze z loginem, który już jest w bazie albo wcześniej w pliku, oraz wiersze bez loginu "
+        "i e-maila zostaną pominięte; dostaniesz numery wierszy.\n\n"
         "Po imporcie usuń plik CSV z dysku – hasła są w nim jawne.",
     "All files": "Wszystkie",
-    "Added: {added}\nSkipped (duplicates): {skipped}": "Dodano: {added}\nPominięto (duplikaty): {skipped}",
+    "Added: {added}\nSkipped: {skipped}": "Dodano: {added}\nPominięto: {skipped}",
+    "Line {line}: {reason}": "Wiersz {line}: {reason}",
+    "…and {n} more": "…i jeszcze {n}",
     "Export CSV": "Eksport CSV",
     "Include passwords?\n\nYes = file with plain-text passwords (keep it safe!)\nNo = without passwords":
         "Dołączyć hasła?\n\nTak = plik z jawnymi hasłami (trzymaj go bezpiecznie!)\nNie = bez haseł",
