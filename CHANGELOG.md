@@ -4,6 +4,7 @@ All notable changes to EveKonta. Adding a new version at the top publishes a Git
 
 ## [Unreleased]
 
+- CSV import says which rows it skipped and why, with the line number in the file: login already in the database, login repeated in the same file (with the line it repeats), a row with neither login nor e-mail (these were imported as empty accounts before), or an unreadable row. A quoted cell spanning several lines is counted from the line where its row starts.
 - Copied passwords are kept out of the Windows clipboard history and cloud clipboard sync.
 - `pyproject.toml` (installable with `pip install -e .[dev]`), ruff lint in CI, code cleanups.
 - MIT license, screenshots and a rewritten README with the security model and architecture.

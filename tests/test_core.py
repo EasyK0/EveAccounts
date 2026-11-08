@@ -278,6 +278,42 @@ def test_account_search_and_csv(db, vault, tmp_path):
     assert db.list_characters()[0]["account_id"] is None
 
 
+def test_csv_import_reports_skipped_rows(db, vault, tmp_path):
+    db.add_account(name="Old", login="old_alt", email="", password_enc=vault.encrypt("x"))
+    src = tmp_path / "broken.csv"
+    src.write_text("login;haslo;email;notatki\n"
+                   "alt1;Pw1;a1@wp.pl;\n"            # line 2: added
+                   ";;;only a note\n"                 # line 3: no login, no e-mail
+                   "OLD_ALT;Pw;;\n"                   # line 4: already in the database
+                   "\n"                               # line 5: empty, ignored
+                   "Alt1;Pw9;;\n"                     # line 6: repeats line 2
+                   ";;mail@wp.pl;\n"                  # line 7: e-mail only is fine
+                   'alt3;"two\nline pw";;\n'          # lines 8-9: quoted cell over two lines, added
+                   "alt3;again;;\n", encoding="utf-8", newline="")  # line 10: repeats line 8
+    report = csvio.import_accounts_report(db, vault, src)
+    assert report.added == 3
+    assert [(s.line, s.reason) for s in report.skipped] == [
+        (3, "no login and no e-mail"),
+        (4, "login OLD_ALT is already in the database"),
+        (6, "login Alt1 repeats line 2"),
+        (10, "login alt3 repeats line 8"),
+    ]
+    assert vault.decrypt(db.list_accounts("alt3")[0]["password_enc"]) == "two\nline pw"
+    # the old two-number form still works
+    assert csvio.import_accounts(Db(":memory:"), vault, src) == (4, 3)
+
+
+def test_csv_import_reasons_in_polish(db, vault, tmp_path):
+    src = tmp_path / "pl.csv"
+    src.write_text("login;email;notatki\n;;only a note\nx;;\n", encoding="utf-8")
+    i18n.set_language("pl")
+    try:
+        report = csvio.import_accounts_report(db, vault, src)
+    finally:
+        i18n.set_language("en")
+    assert [(s.line, s.reason) for s in report.skipped] == [(2, "brak loginu i e-maila")]
+
+
 def test_auth_url_and_callback_server():
     import threading
     import urllib.request

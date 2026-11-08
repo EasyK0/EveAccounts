@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import csv
 import io
+from dataclasses import dataclass
+from dataclasses import field as dc_field
 from pathlib import Path
 
 from .crypto import Vault
@@ -55,43 +57,80 @@ def _map_header(header: list[str]) -> dict[str, int]:
     return mapping
 
 
-def import_accounts(db: Db, vault: Vault, path: Path) -> tuple[int, int]:
-    """Returns (added, skipped). An account whose login already exists is skipped."""
+@dataclass
+class SkippedRow:
+    line: int  # line number in the file (the header is line 1)
+    reason: str
+
+
+@dataclass
+class ImportReport:
+    added: int = 0
+    skipped: list[SkippedRow] = dc_field(default_factory=list)
+
+
+def import_accounts_report(db: Db, vault: Vault, path: Path) -> ImportReport:
+    """Imports accounts and says which rows were skipped and why: login already in the
+    database, login repeated in the file, or a row with neither login nor e-mail."""
     text = _read_text(Path(path))
     try:
         dialect = csv.Sniffer().sniff(text[:4096], delimiters=";,\t")
     except csv.Error:
         dialect = _Semicolon
-    rows = list(csv.reader(io.StringIO(text), dialect))
-    if not rows:
-        return 0, 0
-    mapping = _map_header(rows[0])
+    reader = csv.reader(io.StringIO(text), dialect)
+    report = ImportReport()
+    header = next(reader, None)
+    if header is None:
+        return report
+    mapping = _map_header(header)
     if "login" not in mapping and "email" not in mapping:
         raise ValueError(tr("The file needs a header row with a 'login' or 'email' column"))
-    existing = {r["login"].lower() for r in db.query("SELECT login FROM accounts") if r["login"]}
-    added = skipped = 0
+    in_db = {r["login"].lower() for r in db.query("SELECT login FROM accounts") if r["login"]}
+    seen_at: dict[str, int] = {}  # login -> line where this file added it
 
-    def get(row, field):
-        i = mapping.get(field)
+    def get(row, name):
+        i = mapping.get(name)
         return row[i].strip() if i is not None and i < len(row) else ""
 
-    for row in rows[1:]:
+    while True:
+        start = reader.line_num + 1  # a quoted cell can span lines; report where the row starts
+        try:
+            row = next(reader)
+        except StopIteration:
+            break
+        except csv.Error as exc:
+            report.skipped.append(SkippedRow(start, tr("unreadable row ({error})", error=exc)))
+            continue
         if not any(cell.strip() for cell in row):
             continue
-        login = get(row, "login")
-        if login and login.lower() in existing:
-            skipped += 1
+        login, email = get(row, "login"), get(row, "email")
+        key = login.lower()
+        if not login and not email:
+            report.skipped.append(SkippedRow(start, tr("no login and no e-mail")))
+            continue
+        if key and key in in_db:
+            report.skipped.append(SkippedRow(start, tr("login {login} is already in the database", login=login)))
+            continue
+        if key and key in seen_at:
+            report.skipped.append(SkippedRow(start, tr("login {login} repeats line {line}", login=login,
+                                                       line=seen_at[key])))
             continue
         db.add_account(
-            name=get(row, "name"), login=login, email=get(row, "email"),
+            name=get(row, "name"), login=login, email=email,
             password_enc=vault.encrypt(get(row, "password")),
             email_password_enc=vault.encrypt(get(row, "email_password")),
             omega_until=get(row, "omega_until"), notes=get(row, "notes"),
         )
-        if login:
-            existing.add(login.lower())
-        added += 1
-    return added, skipped
+        if key:
+            seen_at[key] = start
+        report.added += 1
+    return report
+
+
+def import_accounts(db: Db, vault: Vault, path: Path) -> tuple[int, int]:
+    """Returns (added, skipped). See import_accounts_report for the reasons."""
+    report = import_accounts_report(db, vault, path)
+    return report.added, len(report.skipped)
 
 
 def export_accounts(db: Db, vault: Vault, path: Path, include_passwords: bool) -> int:

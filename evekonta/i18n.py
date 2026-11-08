@@ -39,6 +39,10 @@ PL: dict[str, str] = {
     "DPAPI: encryption failed": "DPAPI: nie udało się zaszyfrować",
     "The file needs a header row with a 'login' or 'email' column":
         "Plik musi mieć nagłówek z kolumną 'login' albo 'email'",
+    "unreadable row ({error})": "nieczytelny wiersz ({error})",
+    "no login and no e-mail": "brak loginu i e-maila",
+    "login {login} is already in the database": "login {login} jest już w bazie",
+    "login {login} repeats line {line}": "login {login} powtarza wiersz {line}",
     # --- master password
     "EveKonta – first start": "EveKonta – pierwsze uruchomienie",
     "Set a master password. It encrypts account passwords and character tokens.\n\n"
