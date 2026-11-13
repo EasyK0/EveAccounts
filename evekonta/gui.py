@@ -77,6 +77,10 @@ class Table(ttk.Frame):
             self._sort_key, self._sort_desc = key, False
         self._apply_sort()
 
+    def clear_sort(self):
+        """Forgets the clicked header, so rows keep the order they are given in."""
+        self._sort_key, self._sort_desc = None, False
+
     def _apply_sort(self):
         key = self._sort_key
 
@@ -536,6 +540,21 @@ class App(tk.Tk):
         self.nb.add(tab, text=tr("Alerts"))
         self.alerts_summary = tk.StringVar()
         ttk.Label(tab, textvariable=self.alerts_summary, font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=4)
+        bar = ttk.Frame(tab)
+        bar.pack(fill="x", pady=(0, 4))
+        ttk.Label(bar, text=tr("Account:")).pack(side="left")
+        self.alerts_account = tk.StringVar(value=tr("All accounts"))
+        self.alerts_account_box = ttk.Combobox(bar, textvariable=self.alerts_account, state="readonly", width=28)
+        self.alerts_account_box.pack(side="left", padx=4)
+        self.alerts_account_box.bind("<<ComboboxSelected>>", lambda _e: self.refresh_alerts())
+        ttk.Label(bar, text=tr("Sort:")).pack(side="left", padx=(12, 0))
+        self.alert_sorts = {tr("Most urgent first"): reports.SORT_SEVERITY,
+                            tr("Omega ending first"): reports.SORT_OMEGA}
+        self.alerts_sort = tk.StringVar(value=tr("Most urgent first"))
+        sort_box = ttk.Combobox(bar, textvariable=self.alerts_sort, values=list(self.alert_sorts), state="readonly",
+                                width=24)
+        sort_box.pack(side="left", padx=4)
+        sort_box.bind("<<ComboboxSelected>>", lambda _e: self.resort_alerts())
         self.alerts_table = Table(tab, [("severity", tr("Severity"), 80), ("account", tr("Account"), 160),
                                         ("character", tr("Character"), 180), ("what", tr("What"), 420),
                                         ("when", tr("When"), 140)])
@@ -699,18 +718,32 @@ class App(tk.Tk):
         except (TypeError, ValueError):
             return iso or ""
 
+    def resort_alerts(self):
+        self.alerts_table.clear_sort()
+        self.refresh_alerts()
+
     def refresh_alerts(self):
         now = datetime.now().astimezone()
         alerts = reports.build_alerts(self.db)
+        all_label = tr("All accounts")
+        accounts = reports.alert_accounts(alerts)
+        self.alerts_account_box["values"] = [all_label, *accounts]
+        account = self.alerts_account.get()
+        if account not in accounts:
+            account = all_label
+            self.alerts_account.set(all_label)
+        sort = self.alert_sorts.get(self.alerts_sort.get(), reports.SORT_SEVERITY)
+        shown = reports.sort_alerts(reports.filter_alerts(alerts, None if account == all_label else account), sort)
         rows = [{"severity": a.severity_label, "account": a.account, "character": a.character, "what": a.what,
                  "when": reports.fmt_delta(a.when, now) if a.when else "", "_sort": {"severity": a.severity},
-                 "_tag": f"sev{a.severity}"} for a in alerts]
+                 "_tag": f"sev{a.severity}"} for a in shown]
         self.alerts_table.set_rows(rows, tag_key="_tag")
-        urgent = sum(1 for a in alerts if a.severity == 0)
-        soon = sum(1 for a in alerts if a.severity == 1)
-        self.alerts_summary.set(tr("Urgent: {urgent}   Soon: {soon}", urgent=urgent, soon=soon) if alerts
+        urgent = sum(1 for a in shown if a.severity == 0)
+        soon = sum(1 for a in shown if a.severity == 1)
+        self.alerts_summary.set(tr("Urgent: {urgent}   Soon: {soon}", urgent=urgent, soon=soon) if shown
                                 else tr("No alerts. All good."))
-        self.nb.tab(0, text=tr("Alerts") + (f" ({urgent})" if urgent else ""))
+        urgent_all = sum(1 for a in alerts if a.severity == 0)
+        self.nb.tab(0, text=tr("Alerts") + (f" ({urgent_all})" if urgent_all else ""))
 
     def refresh_chars(self):
         rows = reports.character_rows(self.db)

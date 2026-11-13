@@ -4,6 +4,7 @@ All notable changes to EveKonta. Adding a new version at the top publishes a Git
 
 ## [Unreleased]
 
+- Alerts tab: pick one account to see only its alerts, and sort by "Omega ending first" or "Most urgent first". The tab title still counts urgent alerts of all accounts.
 - Omega alerts say how many days are left ("Omega ends in 2 days", "tomorrow", "today"). The alert builder can also sort Omega alerts first (expired and soonest end on top) and keep only one account's alerts; new tests cover both.
 - Import CSV window: the summary lists each skipped row as "Line N: reason" (first 20, then how many more), in English or Polish.
 - CSV import says which rows it skipped and why, with the line number in the file: login already in the database, login repeated in the same file (with the line it repeats), a row with neither login nor e-mail (these were imported as empty accounts before), or an unreadable row. A quoted cell spanning several lines is counted from the line where its row starts.
