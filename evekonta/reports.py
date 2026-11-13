@@ -27,6 +27,7 @@ class Alert:
     account: str
     what: str
     when: datetime | None
+    omega_days: int | None = None  # set on Omega alerts: whole days until the Omega date (negative = expired)
 
     @property
     def severity_label(self) -> str:
@@ -131,14 +132,51 @@ def build_alerts(db: Db, now: datetime | None = None) -> list[Alert]:
         if omega is None:
             continue
         label = a["name"] or a["login"]
+        days = (omega.date() - now.date()).days
         if omega <= now:
-            alerts.append(Alert(1, a["characters"] or "–", label, tr("Omega expired (by your date)"), omega))
+            alerts.append(Alert(1, a["characters"] or "–", label, tr("Omega expired (by your date)"), omega, days))
         elif omega - now < OMEGA_WARN:
-            alerts.append(Alert(1, a["characters"] or "–", label, tr("Omega ending"), omega))
+            alerts.append(Alert(1, a["characters"] or "–", label, omega_text(days), omega, days))
 
+    return sort_alerts(alerts)
+
+
+def omega_text(days: int) -> str:
+    if days <= 0:
+        return tr("Omega ends today")
+    if days == 1:
+        return tr("Omega ends tomorrow")
+    return tr("Omega ends in {days} days", days=days)
+
+
+SORT_SEVERITY = "severity"
+SORT_OMEGA = "omega"
+
+
+def sort_alerts(alerts: list[Alert], by: str = SORT_SEVERITY) -> list[Alert]:
+    """Most urgent first; with SORT_OMEGA the Omega alerts come first, the soonest end (or expired) on top."""
     far = datetime.max.replace(tzinfo=timezone.utc)
-    alerts.sort(key=lambda a: (a.severity, a.when or far, a.account.lower(), a.character.lower()))
-    return alerts
+
+    def urgency(a: Alert):
+        return a.severity, a.when or far, a.account.lower(), a.character.lower()
+
+    def omega_first(a: Alert):
+        is_omega = a.omega_days is not None
+        return not is_omega, (a.when or far) if is_omega else far, urgency(a)
+
+    return sorted(alerts, key=omega_first if by == SORT_OMEGA else urgency)
+
+
+def alert_accounts(alerts: list[Alert]) -> list[str]:
+    """Account labels that have at least one alert, for the account filter."""
+    return sorted({a.account for a in alerts}, key=str.lower)
+
+
+def filter_alerts(alerts: list[Alert], account: str | None = None) -> list[Alert]:
+    """Only the alerts of one account; None or an empty label keeps all of them."""
+    if not account:
+        return list(alerts)
+    return [a for a in alerts if a.account == account]
 
 
 def totals(db: Db) -> dict:

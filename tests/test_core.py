@@ -260,7 +260,7 @@ def test_account_search_and_csv(db, vault, tmp_path):
     assert db.list_accounts("pochven")[0]["login"] == "dawid_main"
 
     alerts = reports.build_alerts(db, NOW)
-    assert any(a.what == "Omega ending" and a.account == "Main" for a in alerts)
+    assert any(a.what == "Omega ends tomorrow" and a.account == "Main" for a in alerts)
 
     out = tmp_path / "out.csv"
     assert csvio.export_accounts(db, vault, out, include_passwords=True) == 2
@@ -379,3 +379,43 @@ def test_private_clipboard_falls_back_outside_windows(monkeypatch):
 
     monkeypatch.setattr(clip.sys, "platform", "linux")
     assert clip.copy_private("secret") is False
+
+
+def test_alerts_omega_days_sorting_and_account_filter(db):
+    main = db.add_account(name="Main", login="main_login", omega_until="2026-10-13")
+    db.add_account(name="Alt", login="alt_login", omega_until="2026-10-12")
+    db.add_account(name="Lapsed", login="lapsed_login", omega_until="2026-10-01")
+    db.add_account(name="Later", login="later_login", omega_until="2026-12-01")
+    db.add_account(name="NoDate", login="nodate_login")
+    db.execute("INSERT INTO characters(character_id, name, account_id, token_ok) VALUES(7, 'Pilot', ?, 0)", (main,))
+
+    alerts = reports.build_alerts(db, NOW)
+    by_account = {a.account: a for a in alerts if a.omega_days is not None}
+    assert by_account["Main"].what == "Omega ends in 2 days" and by_account["Main"].omega_days == 2
+    assert by_account["Alt"].what == "Omega ends tomorrow" and by_account["Alt"].omega_days == 1
+    assert by_account["Lapsed"].what == "Omega expired (by your date)" and by_account["Lapsed"].omega_days == -10
+    assert "Later" not in by_account and "NoDate" not in by_account
+
+    # default order: most urgent first (the expired login is severity 0)
+    assert alerts[0].what.startswith("Login expired")
+    # Omega order: Omega alerts first, expired and soonest end on top, other alerts after them
+    omega = reports.sort_alerts(alerts, reports.SORT_OMEGA)
+    assert [a.account for a in omega] == ["Lapsed", "Alt", "Main", "Main"]
+    assert omega[-1].omega_days is None
+    assert reports.sort_alerts(omega) == alerts
+
+    assert reports.alert_accounts(alerts) == ["Alt", "Lapsed", "Main"]
+    only_main = reports.filter_alerts(alerts, "Main")
+    assert {a.account for a in only_main} == {"Main"} and len(only_main) == 2
+    assert reports.filter_alerts(alerts, None) == alerts and reports.filter_alerts(alerts, "") == alerts
+    assert reports.filter_alerts(alerts, "Nobody") == []
+
+
+def test_omega_text_in_polish():
+    i18n.set_language("pl")
+    try:
+        assert reports.omega_text(0) == "Omega kończy się dziś"
+        assert reports.omega_text(1) == "Omega kończy się jutro"
+        assert reports.omega_text(3) == "Omega kończy się za 3 dni"
+    finally:
+        i18n.set_language("en")
